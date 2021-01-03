@@ -8,7 +8,7 @@ WIFI_PW=${5:?}
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
-cat "$SSH_PUBKEY" > /etc/dropbear/authorized_keys
+echo "$SSH_PUBKEY" > /etc/dropbear/authorized_keys
 
 passwd << EOF
 $ROOT_PW
