@@ -42,6 +42,8 @@ uci set system.@system[0].hostname='mon'
 uci set system.@system[0].timezone='Asia/Tokyo'
 uci commit system
 
+echo "Reloading config."
+
 reload_config
 
 
