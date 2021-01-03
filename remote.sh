@@ -19,6 +19,14 @@ $ROOT_PW
 $ROOT_PW
 EOF
 
+uci set dropbear.@dropbear[0].RootPasswordAuth='off'
+uci set dropbear.@dropbear[0].PasswordAuth='off'
+uci commit dropbear
+
+reload_config
+echo "Security config reloaded."
+
+
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
 uci set network.wan.password="$PPP_PW"
@@ -34,20 +42,43 @@ uci set wireless.default_radio1.encryption='psk2'
 uci set wireless.radio1.disabled='0'
 uci commit wireless
 
-uci set dropbear.@dropbear[0].RootPasswordAuth='off'
-uci set dropbear.@dropbear[0].PasswordAuth='off'
-uci commit dropbear
-
 uci set system.@system[0].hostname='mon'
 uci set system.@system[0].timezone='Asia/Tokyo'
 uci commit system
 
-echo "Reloading config."
-
 reload_config
+echo "Basic network config reloaded."
 
+opkg update
+opkg install luci-ssl-nginx
 
-# set HTTPS
+cat << EOF > /etc/ssl/mon.lan.conf
+[req]
+distinguished_name  = req_distinguished_name
+x509_extensions     = v3_req
+prompt              = no
+string_mask         = utf8only
+
+[req_distinguished_name]
+C                   = JP
+L                   = Tokyo
+CN                  = mon.lan
+
+[v3_req]
+keyUsage            = nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage    = serverAuth
+subjectAltName      = @alt_names
+
+[alt_names]
+DNS.1               = mon.lan
+IP.1                = 192.168.1.1
+EOF
+
+openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout /etc/ssl/mon.lan.key -out /etc/ssl/mon.lan.crt -config /etc/ssl/mon.lan.conf
+sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
+
+service nginx reload
+
 # set IPv6
 # set DHCP ranges
 # wireguard
