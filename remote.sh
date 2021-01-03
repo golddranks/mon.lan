@@ -4,7 +4,7 @@ PPP_ID=${1:?}
 PPP_PW=${2:?}
 WIFI_PW=${3:?}
 
-echo "Installing."
+echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
@@ -36,5 +36,6 @@ reload_config
 # set DHCP ranges
 # wireguard
 # set up dyndns
-# set up ports
+# set up port forwarding
+# set up UPnP?
 # set up wifi one-push
