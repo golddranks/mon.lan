@@ -27,11 +27,11 @@ uci commit network
 uci set wireless.default_radio0.ssid='Skeletor 5Ghz'
 uci set wireless.default_radio0.key="$WIFI_PW"
 uci set wireless.default_radio0.encryption='psk2'
-uci delete wireless.radio0.disabled
+uci set wireless.radio0.disabled='0'
 uci set wireless.default_radio1.ssid='Skeletor 2.5Ghz'
 uci set wireless.default_radio1.key="$WIFI_PW"
 uci set wireless.default_radio1.encryption='psk2'
-uci delete wireless.radio1.disabled
+uci set wireless.radio1.disabled='0'
 uci commit wireless
 
 uci set dropbear.@dropbear[0].RootPasswordAuth='off'
