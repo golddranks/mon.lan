@@ -91,7 +91,8 @@ config dhcp 'wan6'
     option ndp 'relay'
     option master '1'
 EOF
-uci commit network dhcp
+uci commit network
+uci commit dhcp
 
 reload_config
 echo "IPv6 settings done."
