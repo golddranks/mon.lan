@@ -5,6 +5,7 @@ SSH_PUBKEY=${2:?}
 PPP_ID=${3:?}
 PPP_PW=${4:?}
 WIFI_PW=${5:?}
+GANDI_API_KEY=${6:?}
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
@@ -85,6 +86,9 @@ uci set dhcp.@host[-1].hostid='11'
 uci set dhcp.@host[-1].dns='1'
 uci commit dhcp
 
+# Remove leases that were made before the static settings
+rm /tmp/dhcp.leases
+
 echo "DHCP static lease settings done."
 
 
@@ -133,6 +137,7 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 
 echo "HTTPS enabled on web interface."
 
+
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
 
@@ -142,8 +147,52 @@ opkg install wpad hostapd-utils
 echo "WPS settings done."
 
 
-opkg install curl nano
+opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-services_2.8.2-4_all.ipk
+opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts_2.8.2-4_all.ipk
+opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-gandi_2.8.2-4_all.ipk
+opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/luci-app-ddns_git-20.356.70818-05328b2_all.ipk
 
+uci delete ddns.myddns_ipv4
+uci delete ddns.myddns_ipv6
+uci -m import ddns << EOF
+config service 'poi_ganba_re_4'
+	option lookup_host 'poi.ganba.re'
+	option domain 'ganba.re'
+	option username 'poi'
+	option password '$GANDI_API_KEY'
+	option interface 'wan'
+	option ip_source 'network'
+	option ip_network 'wan'
+	option update_script '/usr/lib/ddns/update_gandi_net.sh'
+	option dns_server 'ns-2-a.gandi.net'
+	option enabled '1'
+
+config service 'poi_ganba_re_6'
+	option use_ipv6 '1'
+	option lookup_host 'poi.ganba.re'
+	option domain 'ganba.re'
+	option username 'poi'
+	option password '$GANDI_API_KEY'
+	option interface 'wan6'
+	option ip_source 'network'
+	option ip_network 'wan6'
+	option update_script '/usr/lib/ddns/update_gandi_net.sh'
+	option dns_server 'ns-2-a.gandi.net'
+	option enabled '1'
+EOF
+uci commit ddns
+
+echo "DynDNS settings done."
+
+
+# The luci config file conflicts with the new package
+rm /etc/config/luci
+opkg list-upgradable | cut -f 1 -d ' ' | xargs opkg upgrade
+
+echo "Base packages upgraded"
+
+
+opkg install curl nano
 
 echo "curl & nano installed."
 
@@ -153,4 +202,3 @@ reboot now
 
 # TODO:
 # wireguard
-# dyndns
