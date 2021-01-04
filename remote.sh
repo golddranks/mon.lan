@@ -102,7 +102,7 @@ echo "DHCP static lease settings done."
 reload_config
 
 opkg update
-opkg install luci-ssl-nginx curl nano
+opkg install luci-ssl-nginx
 
 cat << EOF > /etc/ssl/mon.lan.conf
 [req]
@@ -129,12 +129,28 @@ EOF
 openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout /etc/ssl/mon.lan.key -out /etc/ssl/mon.lan.crt -config /etc/ssl/mon.lan.conf
 sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
 
-/etc/init.d/nginx reload
+service nginx reload
 
 echo "HTTPS enabled on web interface."
 
-# set up UPnP?
-# set up wifi one-push
+uci set wireless.default_radio1.wps_pushbutton='1'
+uci commit wireless
 
+opkg remove wpad-basic
+opkg install wpad hostapd-utils
+
+echo "WPS settings done."
+
+
+opkg install curl nano
+
+
+echo "curl & nano installed."
+
+reload_config
+echo "Rebooting."
+reboot now
+
+# TODO:
 # wireguard
-# set up dyndns
+# dyndns
