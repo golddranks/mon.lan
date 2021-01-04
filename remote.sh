@@ -26,25 +26,26 @@ uci commit dropbear
 reload_config
 echo "Security config reloaded."
 
+uci batch << EOF
+set network.wan.proto='pppoe'
+set network.wan.username="$PPP_ID"
+set network.wan.password="$PPP_PW"
+commit network
 
-uci set network.wan.proto='pppoe'
-uci set network.wan.username="$PPP_ID"
-uci set network.wan.password="$PPP_PW"
-uci commit network
+set wireless.default_radio0.ssid='Skeletor 5Ghz'
+set wireless.default_radio0.key="$WIFI_PW"
+set wireless.default_radio0.encryption='psk2'
+set wireless.radio0.disabled='0'
+set wireless.default_radio1.ssid='Skeletor 2.5Ghz'
+set wireless.default_radio1.key="$WIFI_PW"
+set wireless.default_radio1.encryption='psk2'
+set wireless.radio1.disabled='0'
+commit wireless
 
-uci set wireless.default_radio0.ssid='Skeletor 5Ghz'
-uci set wireless.default_radio0.key="$WIFI_PW"
-uci set wireless.default_radio0.encryption='psk2'
-uci set wireless.radio0.disabled='0'
-uci set wireless.default_radio1.ssid='Skeletor 2.5Ghz'
-uci set wireless.default_radio1.key="$WIFI_PW"
-uci set wireless.default_radio1.encryption='psk2'
-uci set wireless.radio1.disabled='0'
-uci commit wireless
-
-uci set system.@system[0].hostname='mon'
-uci set system.@system[0].timezone='Asia/Tokyo'
-uci commit system
+set system.@system[0].hostname='mon'
+set system.@system[0].timezone='Asia/Tokyo'
+commit system
+EOF
 
 reload_config
 echo "Basic network config reloaded."
@@ -78,6 +79,23 @@ openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout /etc/ssl/mon.lan.key
 sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
 
 service nginx reload
+
+echo "HTTPS enabled on web interface."
+
+uci set network.wan6.proto='none'
+uci -m import dhcp << EOF
+config dhcp 'wan6'
+	option interface 'wan6'
+	option ignore '1'
+	option dhcpv6 'relay'
+	option ra 'relay'
+	option ndp 'relay'
+	option master '1'
+EOF
+uci commit network dhcp
+
+reload_config
+echo "IPv6 settings done."
 
 # set IPv6
 # set DHCP ranges
