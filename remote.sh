@@ -46,7 +46,6 @@ uci set system.@system[0].hostname='mon'
 uci set system.@system[0].timezone='Asia/Tokyo'
 uci commit system
 
-reload_config
 echo "Basic network config reloaded."
 
 # Set LAN to relay mode to support NDP+RA based addressing
@@ -68,8 +67,39 @@ uci commit dhcp
 uci delete network.globals.ula_prefix
 uci commit network
 
-reload_config
 echo "IPv6 settings done."
+
+
+uci add dhcp host
+uci set dhcp.@host[-1].name='nagi'
+uci set dhcp.@host[-1].mac='A8:A1:59:36:BE:32'
+uci set dhcp.@host[-1].ip='192.168.1.10'
+uci set dhcp.@host[-1].hostid='10'
+uci set dhcp.@host[-1].dns='1'
+
+uci add dhcp host
+uci set dhcp.@host[-1].name='poi'
+uci set dhcp.@host[-1].mac='C7:92:BC:8A:DC:A6'
+uci set dhcp.@host[-1].ip='192.168.1.11'
+uci set dhcp.@host[-1].hostid='11'
+uci set dhcp.@host[-1].dns='1'
+uci commit dhcp
+
+echo "DHCP static lease settings done."
+
+
+uci add firewall redirect
+uci set firewall.@redirect[-1].target='DNAT'
+uci set firewall.@redirect[-1].name='SSH'
+uci set firewall.@redirect[-1].src='wan'
+uci set firewall.@redirect[-1].src_dport='22'
+uci set firewall.@redirect[-1].dest='lan'
+uci set firewall.@redirect[-1].dest_ip='192.168.1.11'
+uci set firewall.@redirect[-1].dest_port='22'
+uci commit firewall
+
+echo "DHCP static lease settings done."
+reload_config
 
 opkg update
 opkg install luci-ssl-nginx curl nano
@@ -103,8 +133,6 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 
 echo "HTTPS enabled on web interface."
 
-# set DHCP ranges
-# set up port forwarding
 # set up UPnP?
 # set up wifi one-push
 
