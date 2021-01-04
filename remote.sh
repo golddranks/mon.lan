@@ -129,7 +129,7 @@ EOF
 openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout /etc/ssl/mon.lan.key -out /etc/ssl/mon.lan.crt -config /etc/ssl/mon.lan.conf
 sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
 
-service nginx reload
+/etc/init.d/nginx reload
 
 echo "HTTPS enabled on web interface."
 
