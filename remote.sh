@@ -81,17 +81,10 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 
 echo "HTTPS enabled on web interface."
 
-uci set network.wan6.proto='none'
-uci -m import dhcp << EOF
-config dhcp 'wan6'
-    option interface 'wan6'
-    option ignore '1'
-    option dhcpv6 'relay'
-    option ra 'relay'
-    option ndp 'relay'
-    option master '1'
-EOF
-uci commit network
+uci set dhcp.lan.ra='relay'
+uci set dhcp.lan.dhcpv6='relay'
+uci set dhcp.lan.ndp='relay'
+uci set dhcp.lan.master='1'
 uci commit dhcp
 
 reload_config
