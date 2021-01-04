@@ -49,8 +49,30 @@ uci commit system
 reload_config
 echo "Basic network config reloaded."
 
+# Set LAN to relay mode to support NDP+RA based addressing
+uci set dhcp.lan.ra='relay'
+uci set dhcp.lan.dhcpv6='relay'
+uci set dhcp.lan.ndp='relay'
+
+# Add WAN6 interface, set it to relay mode and master
+uci set dhcp.wan6=dhcp
+uci set dhcp.wan6.interface='wan6'
+uci set dhcp.wan6.ignore='1'
+uci set dhcp.wan6.master='1'
+uci set dhcp.wan6.dhcpv6='relay'
+uci set dhcp.wan6.ra='relay'
+uci set dhcp.wan6.ndp='relay'
+uci commit dhcp
+
+# MacO NDP+RA supports only LLA source addresses, so don't use ULA
+uci delete network.globals.ula_prefix
+uci commit network
+
+reload_config
+echo "IPv6 settings done."
+
 opkg update
-opkg install luci-ssl-nginx
+opkg install luci-ssl-nginx curl nano
 
 cat << EOF > /etc/ssl/mon.lan.conf
 [req]
@@ -80,15 +102,6 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 /etc/init.d/nginx reload
 
 echo "HTTPS enabled on web interface."
-
-uci set dhcp.lan.ra='relay'
-uci set dhcp.lan.dhcpv6='relay'
-uci set dhcp.lan.ndp='relay'
-uci set dhcp.lan.master='1'
-uci commit dhcp
-
-reload_config
-echo "IPv6 settings done."
 
 # set DHCP ranges
 # set up port forwarding
