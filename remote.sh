@@ -104,7 +104,7 @@ uci set firewall.@redirect[-1].dest_ip='192.168.1.11'
 uci set firewall.@redirect[-1].dest_port='22'
 uci commit firewall
 
-echo "DHCP static lease settings done."
+echo "Port forwarding settings done."
 reload_config
 
 opkg update
