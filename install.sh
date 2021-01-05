@@ -5,9 +5,9 @@
 SSH_PUBKEY=$(cat $HOME/.ssh/id_rsa.pub)
 
 echo "$DROPBEAR_HOST_KEY" | base64 -d > dropbear_rsa_host_key
-scp -o StrictHostKeyChecking=no -q dropbear_rsa_host_key root@192.168.1.1:/etc/dropbear/dropbear_rsa_host_key
+scp -o StrictHostKeyChecking=no dropbear_rsa_host_key root@192.168.1.1:/etc/dropbear/dropbear_rsa_host_key
 rm dropbear_rsa_host_key
-ssh -o StrictHostKeyChecking=no -q root@192.168.1.1 "/etc/init.d/dropbear restart"
+ssh -o StrictHostKeyChecking=no root@192.168.1.1 "/etc/init.d/dropbear restart"
 
 echo "Dropbear restarted."
 ssh-keygen -R 192.168.1.1
