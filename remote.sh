@@ -164,8 +164,8 @@ opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-gandi_2.8.2-4_all.ipk
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/luci-app-ddns_git-20.356.70818-05328b2_all.ipk
 
-uci delete ddns.myddns_ipv4
-uci delete ddns.myddns_ipv6
+uci delete ddns.myddns_ipv4 || true
+uci delete ddns.myddns_ipv6 || true
 uci -m import ddns << EOF
 config service 'poi_ganba_re_4'
 	option lookup_host 'poi.ganba.re'
