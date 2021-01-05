@@ -97,7 +97,7 @@ rm /tmp/dhcp.leases
 echo "DHCP static lease settings done."
 
 
-uci set firewall.ssh_redirect.redirect
+uci set firewall.ssh_redirect=redirect
 uci set firewall.ssh_redirect.target='DNAT'
 uci set firewall.ssh_redirect.name='SSH'
 uci set firewall.ssh_redirect.src='wan'
@@ -204,7 +204,7 @@ uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
 uci add_list network.wg0.addresses='192.168.99.1'
 
-uci set network.bae.wireguard_wg0
+uci set network.bae=wireguard_wg0
 uci set network.bae.description='bae'
 uci set network.bae.public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
 uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
