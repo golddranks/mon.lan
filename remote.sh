@@ -23,8 +23,8 @@ $ROOT_PW
 $ROOT_PW
 EOF
 
-uci set dropbear.@dropbear[0].RootPasswordAuth='off'
-uci set dropbear.@dropbear[0].PasswordAuth='off'
+uci set dropbear.cfg014dd4.RootPasswordAuth='off'
+uci set dropbear.cfg014dd4.PasswordAuth='off'
 uci commit dropbear
 
 echo "Security config done."
@@ -45,8 +45,8 @@ uci set wireless.default_radio1.encryption='psk2'
 uci set wireless.radio1.disabled='0'
 uci commit wireless
 
-uci set system.@system[0].hostname='mon'
-uci set system.@system[0].timezone='Asia/Tokyo'
+uci set system.cfg01e48a.hostname='mon'
+uci set system.cfg01e48a.timezone='Asia/Tokyo'
 uci commit system
 
 
@@ -76,19 +76,19 @@ uci commit network
 echo "IPv6 settings done."
 
 
-uci add dhcp host
-uci set dhcp.@host[-1].name='nagi'
-uci set dhcp.@host[-1].mac='A8:A1:59:36:BE:32'
-uci set dhcp.@host[-1].ip='192.168.1.10'
-uci set dhcp.@host[-1].hostid='10'
-uci set dhcp.@host[-1].dns='1'
+uci set dhcp.nagi=host
+uci set dhcp.nagi.name='nagi'
+uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
+uci set dhcp.nagi.ip='192.168.1.10'
+uci set dhcp.nagi.hostid='10'
+uci set dhcp.nagi.dns='1'
 
-uci add dhcp host
-uci set dhcp.@host[-1].name='poi'
-uci set dhcp.@host[-1].mac='C7:92:BC:8A:DC:A6'
-uci set dhcp.@host[-1].ip='192.168.1.11'
-uci set dhcp.@host[-1].hostid='11'
-uci set dhcp.@host[-1].dns='1'
+uci set dhcp.poi=host
+uci set dhcp.poi.name='poi'
+uci set dhcp.poi.mac='C7:92:BC:8A:DC:A6'
+uci set dhcp.poi.ip='192.168.1.11'
+uci set dhcp.poi.hostid='11'
+uci set dhcp.poi.dns='1'
 uci commit dhcp
 
 # Remove leases that were made before the static settings
@@ -97,14 +97,14 @@ rm /tmp/dhcp.leases
 echo "DHCP static lease settings done."
 
 
-uci add firewall redirect
-uci set firewall.@redirect[-1].target='DNAT'
-uci set firewall.@redirect[-1].name='SSH'
-uci set firewall.@redirect[-1].src='wan'
-uci set firewall.@redirect[-1].src_dport='22'
-uci set firewall.@redirect[-1].dest='lan'
-uci set firewall.@redirect[-1].dest_ip='192.168.1.11'
-uci set firewall.@redirect[-1].dest_port='22'
+uci set firewall.ssh_redirect.redirect
+uci set firewall.ssh_redirect.target='DNAT'
+uci set firewall.ssh_redirect.name='SSH'
+uci set firewall.ssh_redirect.src='wan'
+uci set firewall.ssh_redirect.src_dport='22'
+uci set firewall.ssh_redirect.dest='lan'
+uci set firewall.ssh_redirect.dest_ip='192.168.1.11'
+uci set firewall.ssh_redirect.dest_port='22'
 uci commit firewall
 
 echo "Port forwarding settings done."
@@ -204,12 +204,12 @@ uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
 uci add_list network.wg0.addresses='192.168.99.1'
 
-uci add network wireguard_wg0
-uci set network.@wireguard_wg0[-1].description='bae'
-uci set network.@wireguard_wg0[-1].public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
-uci set network.@wireguard_wg0[-1].preshared_key="$WG_PRESHARED_KEY"
-uci add_list network.@wireguard_wg0[-1].allowed_ips='192.168.99.2/32'
-uci set network.@wireguard_wg0[-1].route_allowed_ips='1'
+uci set network.bae.wireguard_wg0
+uci set network.bae.description='bae'
+uci set network.bae.public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
+uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
+uci add_list network.bae.allowed_ips='192.168.99.2/32'
+uci set network.bae.route_allowed_ips='1'
 uci commit network
 
 uci add_list firewall.cfg02dc81.network='wg0'
