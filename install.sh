@@ -9,8 +9,10 @@ scp -o StrictHostKeyChecking=no -q dropbear_rsa_host_key root@192.168.1.1:/etc/d
 rm dropbear_rsa_host_key
 ssh -o StrictHostKeyChecking=no -q root@192.168.1.1 "/etc/init.d/dropbear restart"
 
+echo "Dropbear restarted."
+ssh-keygen -R 192.168.1.1
 
-ssh root@192.168.1.1 "mkdir -p /etc/ssl"
+ssh -o StrictHostKeyChecking=no root@192.168.1.1 "mkdir -p /etc/ssl"
 echo "$SSL_PRIVATE_KEY" > mon.lan.key
 scp mon.lan.key root@192.168.1.1:/etc/ssl/mon.lan.key
 rm mon.lan.key
