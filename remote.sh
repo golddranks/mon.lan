@@ -110,6 +110,13 @@ uci commit firewall
 echo "Port forwarding settings done."
 
 
+reload_config
+echo "Wait for network."
+ubus -t 30 wait_for network.interface.wan
+
+
+echo "Start installing external packages."
+
 opkg update
 opkg install luci-ssl-nginx
 
@@ -200,7 +207,7 @@ uci add_list network.wg0.addresses='192.168.99.1'
 uci add network wireguard_wg0
 uci set network.@wireguard_wg0[-1].description='bae'
 uci set network.@wireguard_wg0[-1].public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
-uci set network.@wireguard_wg0[-1].preshared_key='$WG_PRESHARED_KEY'
+uci set network.@wireguard_wg0[-1].preshared_key="$WG_PRESHARED_KEY"
 uci add_list network.@wireguard_wg0[-1].allowed_ips='192.168.99.2/32'
 uci set network.@wireguard_wg0[-1].route_allowed_ips='1'
 uci commit network
