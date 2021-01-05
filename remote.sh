@@ -75,7 +75,12 @@ uci commit network
 
 echo "IPv6 settings done."
 
-uci delete dhcp.nagi || true
+# Delete old stuff
+uci delete dhcp.@host[0] || true
+uci delete dhcp.@host[0] || true
+uci delete dhcp.@host[0] || true
+uci delete dhcp.@host[0] || true
+
 uci set dhcp.nagi=host
 uci set dhcp.nagi.name='nagi'
 uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
@@ -83,7 +88,6 @@ uci set dhcp.nagi.ip='192.168.1.10'
 uci set dhcp.nagi.hostid='10'
 uci set dhcp.nagi.dns='1'
 
-uci delete dhcp.poi || true
 uci set dhcp.poi=host
 uci set dhcp.poi.name='poi'
 uci set dhcp.poi.mac='C7:92:BC:8A:DC:A6'
