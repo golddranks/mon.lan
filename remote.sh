@@ -8,7 +8,6 @@ WIFI_PW=${5:?}
 GANDI_API_KEY=${6:?}
 WG_KEY=${7:?}
 WG_PRESHARED_KEY=${8:?}
-SSH_HOST_KEY=${9:?}
 
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
