@@ -8,6 +8,8 @@ WIFI_PW=${5:?}
 GANDI_API_KEY=${6:?}
 WG_KEY=${7:?}
 WG_PRESHARED_KEY=${8:?}
+SSH_HOST_KEY=${9:?}
+
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
@@ -132,7 +134,7 @@ DNS.1               = mon.lan
 IP.1                = 192.168.1.1
 EOF
 
-openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout /etc/ssl/mon.lan.key -out /etc/ssl/mon.lan.crt -config /etc/ssl/mon.lan.conf
+openssl req -x509 -nodes -days 730 -key /etc/ssl/mon.lan.key -out /etc/ssl/mon.lan.crt -config /etc/ssl/mon.lan.conf
 sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
 
 /etc/init.d/nginx reload
@@ -214,7 +216,7 @@ opkg list-upgradable | cut -f 1 -d ' ' | xargs opkg upgrade
 echo "Base packages upgraded"
 
 
-opkg install curl nano
+opkg install curl nano coreutils-base64 wget
 
 echo "curl & nano installed."
 
