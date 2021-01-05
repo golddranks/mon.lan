@@ -6,6 +6,8 @@ PPP_ID=${3:?}
 PPP_PW=${4:?}
 WIFI_PW=${5:?}
 GANDI_API_KEY=${6:?}
+WG_KEY=${7:?}
+WG_PRESHARED_KEY=${8:?}
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
@@ -185,6 +187,26 @@ uci commit ddns
 echo "DynDNS settings done."
 
 
+opkg install luci-proto-wireguard luci-app-wireguard
+uci set network.wg0=interface
+uci set network.wg0.proto='wireguard'
+uci set network.wg0.private_key="$WG_KEY"
+uci set network.wg0.listen_port='51820'
+uci add_list network.wg0.addresses='192.168.99.1'
+
+uci add network wireguard_wg0
+uci set network.@wireguard_wg0[-1].description='bae'
+uci set network.@wireguard_wg0[-1].public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
+uci set network.@wireguard_wg0[-1].preshared_key='$WG_PRESHARED_KEY'
+uci add_list network.@wireguard_wg0[-1].allowed_ips='192.168.99.2/32'
+uci set network.@wireguard_wg0[-1].route_allowed_ips='1'
+uci commit network
+
+uci add_list firewall.cfg02dc81.network='wg0'
+
+echo "Wireguard settings done."
+
+
 # The luci config file conflicts with the new package
 rm /etc/config/luci
 opkg list-upgradable | cut -f 1 -d ' ' | xargs opkg upgrade
@@ -199,6 +221,3 @@ echo "curl & nano installed."
 reload_config
 echo "Rebooting."
 reboot now
-
-# TODO:
-# wireguard
