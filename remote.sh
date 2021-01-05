@@ -27,8 +27,7 @@ uci set dropbear.@dropbear[0].RootPasswordAuth='off'
 uci set dropbear.@dropbear[0].PasswordAuth='off'
 uci commit dropbear
 
-reload_config
-echo "Security config reloaded."
+echo "Security config done."
 
 
 uci set network.wan.proto='pppoe'
@@ -50,7 +49,10 @@ uci set system.@system[0].hostname='mon'
 uci set system.@system[0].timezone='Asia/Tokyo'
 uci commit system
 
-echo "Basic network config reloaded."
+
+echo "Basic network config done. Reload config."
+reload_config
+
 
 # Set LAN to relay mode to support NDP+RA based addressing
 uci set dhcp.lan.ra='relay'
@@ -67,8 +69,8 @@ uci set dhcp.wan6.ra='relay'
 uci set dhcp.wan6.ndp='relay'
 uci commit dhcp
 
-# MacO NDP+RA supports only LLA source addresses, so don't use ULA
-uci delete network.globals.ula_prefix
+# MacOS NDP+RA supports only LLA source addresses, so don't use ULA
+uci set network.globals.ula_prefix=''
 uci commit network
 
 echo "IPv6 settings done."
@@ -106,7 +108,7 @@ uci set firewall.@redirect[-1].dest_port='22'
 uci commit firewall
 
 echo "Port forwarding settings done."
-reload_config
+
 
 opkg update
 opkg install luci-ssl-nginx

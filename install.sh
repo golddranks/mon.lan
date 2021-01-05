@@ -6,12 +6,13 @@ SSH_PUBKEY=$(cat $HOME/.ssh/id_rsa.pub)
 
 echo "$DROPBEAR_HOST_KEY" | base64 -d > dropbear_rsa_host_key
 ssh-keygen -R 192.168.1.1
-scp -o StrictHostKeyChecking=no -q dropbear_rsa_host_key root@192.168.1.1:/etc/dropbear/dropbear_rsa_host_key
+scp -o StrictHostKeyChecking=no -q dropbear_rsa_host_key root@192.168.1.1:/etc/dropbear/
 rm dropbear_rsa_host_key
 
 
+ssh root@192.168.1.1 "mkdir -p /etc/ssl"
 echo "$SSL_PRIVATE_KEY" > mon.lan.key
-scp mon.lan.key root@192.168.1.1:/etc/ssl/mon.lan.key
+scp mon.lan.key root@192.168.1.1:/etc/ssl/
 rm mon.lan.key
 
 scp remote.sh root@192.168.1.1:
