@@ -116,8 +116,9 @@ echo "Port forwarding settings done."
 
 
 reload_config
-echo "Wait for network."
+echo "Wait for network && DNS before accessing package repo."
 ubus -t 30 wait_for network.interface.wan
+ubus -t 30 wait_for dnsmasq
 
 
 echo "Start installing external packages."
