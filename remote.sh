@@ -185,7 +185,7 @@ uci set network.wg0=interface
 uci set network.wg0.proto='wireguard'
 uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
-uci add_list network.wg0.addresses='192.168.99.1'
+uci add_list network.wg0.addresses='192.168.99.1/24'
 
 uci set network.bae=wireguard_wg0
 uci set network.bae.description='bae'
@@ -195,9 +195,24 @@ uci add_list network.bae.allowed_ips='192.168.99.2/32'
 uci set network.bae.route_allowed_ips='1'
 uci commit network
 
-uci add_list firewall.cfg02dc81.network='wg0'
+# Add wg0 as part of LAN zone
+uci set firewall.cfg02dc81.network='lan wg0'
+
+# Add Allow-Wireguard port hole to firewall
+uci set firewall.allow_wireguard=rule
+uci set firewall.allow_wireguard.name='Allow-Wireguard'
+uci set firewall.allow_wireguard.proto='udp'
+uci set firewall.allow_wireguard.src='wan'
+uci set firewall.allow_wireguard.dest_port='51820'
+uci set firewall.allow_wireguard.target='ACCEPT'
+uci commit firewall
+
+# Allow Dnsmasq to respond to queries from Wireguard tunnel
+uci set dhcp.@dnsmasq[0].localservice='0'
+uci commit dhcp
 
 echo "Wireguard settings done."
+reload_config
 
 
 # The luci config file conflicts with the new package
