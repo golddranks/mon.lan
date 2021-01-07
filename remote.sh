@@ -85,14 +85,11 @@ uci set dhcp.nagi.dns='1'
 
 uci set dhcp.poi=host
 uci set dhcp.poi.name='poi'
-uci set dhcp.poi.mac='C7:92:BC:8A:DC:A6'
+uci set dhcp.poi.mac='DC:A6:32:08:DB:FC'
 uci set dhcp.poi.ip='192.168.1.11'
 uci set dhcp.poi.hostid='11'
 uci set dhcp.poi.dns='1'
 uci commit dhcp
-
-# Remove leases that were made before the static settings
-rm -f /tmp/dhcp.leases
 
 echo "DHCP static lease settings done."
 
@@ -240,5 +237,9 @@ opkg install curl nano coreutils-base64 wget
 echo "curl & nano installed."
 
 reload_config
+# Remove leases that were made before the static settings
+rm -f /tmp/dhcp.leases
+
+
 echo "Rebooting."
 reboot now
