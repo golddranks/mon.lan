@@ -76,12 +76,6 @@ uci commit network
 
 echo "IPv6 settings done."
 
-# Delete old stuff
-uci delete dhcp.@host[0] || true
-uci delete dhcp.@host[0] || true
-uci delete dhcp.@host[0] || true
-uci delete dhcp.@host[0] || true
-
 uci set dhcp.nagi=host
 uci set dhcp.nagi.name='nagi'
 uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
@@ -134,11 +128,19 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 echo "HTTPS enabled on web interface."
 
 
+uci set wireless.default_radio0.wps_pushbutton='1'
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
 
 opkg remove wpad-basic
 opkg install wpad hostapd-utils
+
+cat << EOF > /root/wps.sh
+#!/bin/sh
+hostapd_cli -i wlan0 wps_pbc
+hostapd_cli -i wlan1 wps_pbc
+EOF
+chmod 0755 /root/wps.sh
 
 echo "WPS settings done."
 
@@ -226,8 +228,7 @@ reload_config
 
 
 # The luci config file conflicts with the new package
-rm /etc/config/luci
-opkg list-upgradable | cut -f 1 -d ' ' | xargs opkg upgrade
+opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
 
 echo "Base packages upgraded"
 
