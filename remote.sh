@@ -229,6 +229,8 @@ reload_config
 
 # The luci config file conflicts with the new package
 opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
+# Resolve conflict with an upgraded config file
+mv /etc/config/luci-opkg /etc/config/luci || true
 
 echo "Base packages upgraded"
 
