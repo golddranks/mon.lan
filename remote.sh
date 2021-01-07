@@ -14,9 +14,10 @@ echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
 echo "$SSH_PUBKEY" > /etc/dropbear/authorized_keys
 
-# For convenience, add nagi and bae regardless
+# For convenience, add nagi, bae & OnePlus regardless
 echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQD7vzA+j56GjMFydRotjaCopjJUYDpiNgMw6uTpt2x7LisjY+fZR4uHJlcGpT7ooUROJPTekDyINcdRmhPTc0wg/G4MpeWfUhU8AkjXYhSpgGkh8Q56X4Qh120MG3oSm/FTHjobKaALJHuigiylQc8/G0GHh8Lzh5W/K1c7LZ6/EGCIHwBbJcjAPGQXJtjPOs8b68AK9TnXUAT3DR2cOUOraDTgRQuav63kbz4l7DHKpWXSBwNsw8v2UbL9Yedd677/MNeckmwA4yXe6Sx/4rqufV+5Sin1PGIJsOXc5AiwowcYQNDflbJqaC9UZiTu0ZSLoOV+QUvd4HsDACTVg/lCUDpzmsKFMZzk2lnd4XsLetRBx8rN3HVECxU+nRM05CyAAdL1OYlRN1amiM8XQ6S+FoB16k41e3XTjrhgxu+1hWt+vvlB61QTrI+5xTG3ra555mOzf98MrAzG7A0QONuGOvHtNT49dC2GcgXzHn0N3ntYgOECrpVrXJ+CLHh/LSc= kon@nagi" >> /etc/dropbear/authorized_keys
 echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDrhFzEaTWS9G/T+rLdGpqcIHevzFMypO7HuVd9/qMiX6G64oveaYBjgRriNricAB+koxKP2Kga6lB5NUVyTaqVN96cVwA9EQJ6GJAi5qZElWVZ7sjODgjVcXdzXSWfztbBLntgxx3J9Ugofy2lb4edGXO7lHqTUI4pmxE6QdIESjVdEUljHsX8uSBOiNXvgQ/TyvStEPp0R8GrKI4fTb+SSQCPn/NYrWFip4OMkqwp98wqqzT5WHi1p0rFzwedyH3SIdic0PCszoSdgRNL9j5AwQ6oXJC0gp5i+8etzyIkCp12o0LBVyWUQaYvH9MujR40p6kZKboUnlXxJ25EWnT5 kon@bae" >> /etc/dropbear/authorized_keys
+echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDylsriWf/lTC35CoTlsxYsIqFCvKtZ/qAqydB2PooH29+S+mKh68gDSzyYbXiRVTOiptX2PDQAIscpLGBU0W58Y39fchq9SJYwhA2V+gnNlHsb8f3P/TeqZ6+oahGgD0mCgM348GM2i43epkO6pOS7ciWhd9KI13iLQndABBJD3Z43rYlL94h1S1GpeZVqP+cBxKmRNAsWefNTSZkFTtpG8Lt47G7QR4GjoamjRlJzGVomzsKmFluOf2lcpvxl6TpvJmowPpkOXaMsIIQH/tWtgmR42AnCl7rQXAGzRGwDc6MKvS8Xsd55mrSYqHDEslu6F9SuHU4ob7NMtACjKgVF OnePlusRSA" >> /etc/dropbear/authorized_keys
 
 passwd << EOF
 $ROOT_PW
@@ -185,14 +186,23 @@ uci set network.wg0=interface
 uci set network.wg0.proto='wireguard'
 uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
-uci add_list network.wg0.addresses='192.168.99.1/24'
+uci set network.wg0.addresses='192.168.99.1/24'
 
 uci set network.bae=wireguard_wg0
 uci set network.bae.description='bae'
 uci set network.bae.public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
 uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
-uci add_list network.bae.allowed_ips='192.168.99.2/32'
+uci set network.bae.allowed_ips='192.168.99.2/32'
 uci set network.bae.route_allowed_ips='1'
+uci set network.bae.persistent_keepalive='25'
+
+uci set network.one_plus=wireguard_wg0
+uci set network.one_plus.description='one_plus'
+uci set network.one_plus.public_key='DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU='
+uci set network.one_plus.preshared_key="$WG_PRESHARED_KEY"
+uci set network.one_plus.allowed_ips='192.168.99.3/32'
+uci set network.one_plus.route_allowed_ips='1'
+uci set network.one_plus.persistent_keepalive='25'
 uci commit network
 
 # Add wg0 as part of LAN zone
