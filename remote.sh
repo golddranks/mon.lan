@@ -46,7 +46,7 @@ uci set wireless.radio1.disabled='0'
 uci commit wireless
 
 uci set system.cfg01e48a.hostname='mon'
-uci set system.cfg01e48a.timezone='Asia/Tokyo'
+uci set system.cfg01e48a.timezone='JST-9'
 uci commit system
 
 
