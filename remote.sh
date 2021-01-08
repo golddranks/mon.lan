@@ -26,6 +26,7 @@ EOF
 
 uci set dropbear.cfg014dd4.RootPasswordAuth='off'
 uci set dropbear.cfg014dd4.PasswordAuth='off'
+uci set dropbear.cfg014dd4.Interface='lan'
 uci commit dropbear
 
 echo "Security config done."
@@ -102,7 +103,6 @@ uci set firewall.ssh_redirect.target='DNAT'
 uci set firewall.ssh_redirect.name='SSH'
 uci set firewall.ssh_redirect.src='wan'
 uci set firewall.ssh_redirect.src_dport='22'
-uci set firewall.ssh_redirect.dest='lan'
 uci set firewall.ssh_redirect.dest_ip='192.168.1.11'
 uci set firewall.ssh_redirect.dest_port='22'
 uci commit firewall
