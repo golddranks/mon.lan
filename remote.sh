@@ -40,10 +40,12 @@ uci set wireless.default_radio0.ssid='Skeletor 5Ghz'
 uci set wireless.default_radio0.key="$WIFI_PW"
 uci set wireless.default_radio0.encryption='psk2'
 uci set wireless.radio0.disabled='0'
+uci set wireless.radio0.country='JP'
 uci set wireless.default_radio1.ssid='Skeletor 2.5Ghz'
 uci set wireless.default_radio1.key="$WIFI_PW"
 uci set wireless.default_radio1.encryption='psk2'
 uci set wireless.radio1.disabled='0'
+uci set wireless.radio1.country='JP'
 uci commit wireless
 
 uci set system.cfg01e48a.hostname='mon'
@@ -125,8 +127,7 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 
 echo "HTTPS enabled on web interface."
 
-# It doesn't seem to work with two radios, so commenting out the 5Ghz one.
-# uci set wireless.default_radio0.wps_pushbutton='1'
+# It doesn't seem to work with two radios, so setting up only the 2.5Ghz one.
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
 
@@ -135,8 +136,8 @@ opkg install wpad hostapd-utils
 
 cat << EOF > /root/wps.sh
 #!/bin/sh
-# hostapd_cli -i wlan0 wps_pbc
 hostapd_cli -i wlan1 wps_pbc
+hostapd_cli -i wlan1 wps_get_status
 EOF
 chmod 0755 /root/wps.sh
 
