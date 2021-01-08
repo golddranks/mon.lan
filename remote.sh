@@ -48,6 +48,7 @@ uci commit wireless
 
 uci set system.cfg01e48a.hostname='mon'
 uci set system.cfg01e48a.timezone='JST-9'
+uci set system.cfg01e48a.zonename='Asia/Tokyo'
 uci commit system
 
 
