@@ -125,8 +125,8 @@ sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.
 
 echo "HTTPS enabled on web interface."
 
-
-uci set wireless.default_radio0.wps_pushbutton='1'
+# It doesn't seem to work with two radios, so commenting out the 5Ghz one.
+# uci set wireless.default_radio0.wps_pushbutton='1'
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
 
@@ -135,7 +135,7 @@ opkg install wpad hostapd-utils
 
 cat << EOF > /root/wps.sh
 #!/bin/sh
-hostapd_cli -i wlan0 wps_pbc
+# hostapd_cli -i wlan0 wps_pbc
 hostapd_cli -i wlan1 wps_pbc
 EOF
 chmod 0755 /root/wps.sh
