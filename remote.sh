@@ -181,19 +181,21 @@ uci commit ddns
 
 echo "DynDNS settings done."
 
+GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
+
 
 opkg install luci-proto-wireguard luci-app-wireguard
 uci set network.wg0=interface
 uci set network.wg0.proto='wireguard'
 uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
-uci set network.wg0.addresses='192.168.99.1/24'
+uci set network.wg0.addresses="192.168.99.1/24 ${GLOBAL_IPV6_PREFIX}:9999:1/112"
 
 uci set network.bae=wireguard_wg0
 uci set network.bae.description='bae'
 uci set network.bae.public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
 uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
-uci set network.bae.allowed_ips='192.168.99.2/32'
+uci set network.bae.allowed_ips="192.168.99.2/32 ${GLOBAL_IPV6_PREFIX}:9999:2/128"
 uci set network.bae.route_allowed_ips='1'
 uci set network.bae.persistent_keepalive='25'
 
@@ -201,7 +203,7 @@ uci set network.one_plus=wireguard_wg0
 uci set network.one_plus.description='one_plus'
 uci set network.one_plus.public_key='DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU='
 uci set network.one_plus.preshared_key="$WG_PRESHARED_KEY"
-uci set network.one_plus.allowed_ips='192.168.99.3/32'
+uci set network.one_plus.allowed_ips="192.168.99.3/32 ${GLOBAL_IPV6_PREFIX}:9999:3/128"
 uci set network.one_plus.route_allowed_ips='1'
 uci set network.one_plus.persistent_keepalive='25'
 uci commit network
@@ -222,8 +224,21 @@ uci commit firewall
 uci set dhcp.@dnsmasq[0].localservice='0'
 uci commit dhcp
 
+# Enable proxying NDP messages between external interfaces and wg0
+echo "net.ipv6.conf.all.proxy_ndp = 1" >> /etc/sysctl.conf
+echo << EOF > /etc/rc.local
+ip -6 neigh add proxy 2404:7a80:9621:7100::9999:1 dev eth0.2
+ip -6 neigh add proxy 2404:7a80:9621:7100::9999:2 dev eth0.2
+ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev eth0.2
+ip -6 neigh add proxy 2404:7a80:9621:7100::9999:1 dev br-lan
+ip -6 neigh add proxy 2404:7a80:9621:7100::9999:2 dev br-lan
+ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev br-lan
+EOF
+
+
 echo "Wireguard settings done."
 reload_config
+
 
 
 # The luci config file conflicts with the new package
@@ -234,9 +249,9 @@ mv /etc/config/luci-opkg /etc/config/luci || true
 echo "Base packages upgraded"
 
 
-opkg install curl nano coreutils-base64 wget
+opkg install curl nano coreutils-base64 wget bind-dig tcpdump
 
-echo "curl & nano installed."
+echo "utilities installed."
 
 reload_config
 # Remove leases that were made before the static settings
