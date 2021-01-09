@@ -233,7 +233,10 @@ ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev eth0.2
 ip -6 neigh add proxy 2404:7a80:9621:7100::9999:1 dev br-lan
 ip -6 neigh add proxy 2404:7a80:9621:7100::9999:2 dev br-lan
 ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev br-lan
+
+exit 0
 EOF
+chmod 0755 /etc/rc.local
 
 
 echo "Wireguard settings done."
