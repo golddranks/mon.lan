@@ -31,7 +31,7 @@ uci commit dropbear
 
 echo "Security config done."
 
-
+uci set network.lan.ipaddr='10.0.0.1'
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
 uci set network.wan.password="$PPP_PW"
@@ -83,15 +83,15 @@ echo "IPv6 settings done."
 uci set dhcp.nagi=host
 uci set dhcp.nagi.name='nagi'
 uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
-uci set dhcp.nagi.ip='192.168.1.10'
+uci set dhcp.nagi.ip='10.0.0.10'
 uci set dhcp.nagi.hostid='10'
 uci set dhcp.nagi.dns='1'
 
 uci set dhcp.poi=host
 uci set dhcp.poi.name='poi'
 uci set dhcp.poi.mac='DC:A6:32:08:DB:FC'
-uci set dhcp.poi.ip='192.168.1.11'
-uci set dhcp.poi.hostid='11'
+uci set dhcp.poi.ip='10.0.0.20'
+uci set dhcp.poi.hostid='20'
 uci set dhcp.poi.dns='1'
 uci commit dhcp
 
@@ -103,7 +103,7 @@ uci set firewall.ssh_redirect.target='DNAT'
 uci set firewall.ssh_redirect.name='SSH'
 uci set firewall.ssh_redirect.src='wan'
 uci set firewall.ssh_redirect.src_dport='22'
-uci set firewall.ssh_redirect.dest_ip='192.168.1.11'
+uci set firewall.ssh_redirect.dest_ip='10.0.0.20'
 uci set firewall.ssh_redirect.dest_port='22'
 uci commit firewall
 
@@ -189,7 +189,7 @@ uci set network.wg0=interface
 uci set network.wg0.proto='wireguard'
 uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
-uci set network.wg0.addresses="192.168.99.1/24 ${GLOBAL_IPV6_PREFIX}:9999:1/112"
+uci set network.wg0.addresses="10.0.99.0/24 ${GLOBAL_IPV6_PREFIX}:9999:0/112"
 
 cat << EOF > /etc/init.d/wg_proxy
 #!/bin/sh /etc/rc.common
@@ -207,7 +207,7 @@ uci set network.bae=wireguard_wg0
 uci set network.bae.description='bae'
 uci set network.bae.public_key='is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4='
 uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
-uci set network.bae.allowed_ips="192.168.99.2/32 ${GLOBAL_IPV6_PREFIX}:9999:2/128"
+uci set network.bae.allowed_ips="10.0.99.10/32 ${GLOBAL_IPV6_PREFIX}:9999:10/128"
 uci set network.bae.route_allowed_ips='1'
 uci set network.bae.persistent_keepalive='25'
 echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:2 dev eth0.2" >> /etc/init.d/wg_proxy
@@ -217,7 +217,7 @@ uci set network.one_plus=wireguard_wg0
 uci set network.one_plus.description='one_plus'
 uci set network.one_plus.public_key='DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU='
 uci set network.one_plus.preshared_key="$WG_PRESHARED_KEY"
-uci set network.one_plus.allowed_ips="192.168.99.3/32 ${GLOBAL_IPV6_PREFIX}:9999:3/128"
+uci set network.one_plus.allowed_ips="10.0.99.20/32 ${GLOBAL_IPV6_PREFIX}:9999:20/128"
 uci set network.one_plus.route_allowed_ips='1'
 uci set network.one_plus.persistent_keepalive='25'
 echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev eth0.2" >> /etc/init.d/wg_proxy
