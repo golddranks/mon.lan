@@ -32,9 +32,12 @@ uci commit dropbear
 echo "Security config done."
 
 uci set network.lan.ipaddr='10.0.0.1'
+uci set network.lan.ip6ifaceid='::1'
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
 uci set network.wan.password="$PPP_PW"
+uci set network.wan6.proto='static'
+uci set network.wan6.ip6ifaceid='::1'
 uci commit network
 
 uci set wireless.default_radio0.ssid='Skeletor 5Ghz'
@@ -152,30 +155,37 @@ opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/luci
 uci delete ddns.myddns_ipv4 || true
 uci delete ddns.myddns_ipv6 || true
 uci -m import ddns << EOF
-config service 'poi_ganba_re_4'
-	option lookup_host 'poi.ganba.re'
-	option domain 'ganba.re'
-	option username 'poi'
+config service 'drasa_eu_ipv4'
+	option enabled '1'
+	option use_ipv6 '0'
+	option service_name 'gandi.net'
+	option lookup_host 'drasa.eu'
+	option domain 'drasa.eu'
+	option username '@'
 	option password '$GANDI_API_KEY'
-	option interface 'wan'
 	option ip_source 'network'
 	option ip_network 'wan'
-	option update_script '/usr/lib/ddns/update_gandi_net.sh'
-	option dns_server 'ns-2-a.gandi.net'
-	option enabled '1'
+	option interface 'wan'
+	option use_syslog '2'
+	option check_unit 'minutes'
+	option force_unit 'minutes'
+	option retry_unit 'seconds'
 
-config service 'poi_ganba_re_6'
+config service 'drasa_eu_ipv6'
+	option enabled '1'
 	option use_ipv6 '1'
-	option lookup_host 'poi.ganba.re'
-	option domain 'ganba.re'
-	option username 'poi'
+	option service_name 'gandi.net'
+	option lookup_host 'drasa.eu'
+	option domain 'drasa.eu'
+	option username '@'
 	option password '$GANDI_API_KEY'
-	option interface 'wan6'
 	option ip_source 'network'
 	option ip_network 'wan6'
-	option update_script '/usr/lib/ddns/update_gandi_net.sh'
-	option dns_server 'ns-2-a.gandi.net'
-	option enabled '1'
+	option interface 'wan6'
+	option use_syslog '2'
+	option check_unit 'minutes'
+	option force_unit 'minutes'
+	option retry_unit 'seconds'
 EOF
 uci commit ddns
 
@@ -189,7 +199,7 @@ uci set network.wg0=interface
 uci set network.wg0.proto='wireguard'
 uci set network.wg0.private_key="$WG_KEY"
 uci set network.wg0.listen_port='51820'
-uci set network.wg0.addresses="10.0.99.0/24 ${GLOBAL_IPV6_PREFIX}:9999:0/112"
+uci set network.wg0.addresses="10.0.99.1/24 ${GLOBAL_IPV6_PREFIX}:9999:1/112"
 
 cat << EOF > /etc/init.d/wg_proxy
 #!/bin/sh /etc/rc.common
@@ -210,8 +220,8 @@ uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
 uci set network.bae.allowed_ips="10.0.99.10/32 ${GLOBAL_IPV6_PREFIX}:9999:10/128"
 uci set network.bae.route_allowed_ips='1'
 uci set network.bae.persistent_keepalive='25'
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:2 dev eth0.2" >> /etc/init.d/wg_proxy
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:2 dev br-lan" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:10 dev eth0.2" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:10 dev br-lan" >> /etc/init.d/wg_proxy
 
 uci set network.one_plus=wireguard_wg0
 uci set network.one_plus.description='one_plus'
@@ -220,8 +230,8 @@ uci set network.one_plus.preshared_key="$WG_PRESHARED_KEY"
 uci set network.one_plus.allowed_ips="10.0.99.20/32 ${GLOBAL_IPV6_PREFIX}:9999:20/128"
 uci set network.one_plus.route_allowed_ips='1'
 uci set network.one_plus.persistent_keepalive='25'
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev eth0.2" >> /etc/init.d/wg_proxy
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:3 dev br-lan" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:20 dev eth0.2" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:20 dev br-lan" >> /etc/init.d/wg_proxy
 
 echo "echo 'WireGuard NDP proxy set up.'" >> /etc/init.d/wg_proxy
 echo "}" >> /etc/init.d/wg_proxy
