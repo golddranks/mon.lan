@@ -1,6 +1,6 @@
 #!/bin/sh -eu
 
-SERIAL=01
+SERIAL=02
 
 cat << EOF > cert/drasa.eu.cfg
 subjectAltName = DNS:drasa.eu, DNS:*.drasa.eu
