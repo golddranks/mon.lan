@@ -33,8 +33,8 @@ uci set network.lan.ip6ifaceid='::1'
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
 uci set network.wan.password="$PPP_PW"
-uci set network.wan6.proto='static'
-uci set network.wan6.ip6ifaceid='::1'
+#uci set network.wan6.proto='static'
+#uci set network.wan6.ip6ifaceid='::1'
 uci commit network
 
 uci set wireless.default_radio0.ssid='Skeletor 5Ghz'

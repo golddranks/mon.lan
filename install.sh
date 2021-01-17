@@ -13,12 +13,8 @@ echo "Dropbear restarted."
 ssh-keygen -R 192.168.1.1
 
 ssh -o StrictHostKeyChecking=no root@192.168.1.1 "mkdir -p /etc/ssl"
-echo "$SSL_PRIVATE_KEY" > mon.lan.key
-echo "$SSL_CERT" > mon.lan.crt
-scp mon.lan.key root@192.168.1.1:/etc/ssl/mon.lan.key
-scp mon.lan.crt root@192.168.1.1:/etc/ssl/mon.lan.crt
-rm mon.lan.key
-rm mon.lan.crt
+scp cert/mon.lan.key root@192.168.1.1:/etc/ssl/mon.lan.key
+scp cert/mon.lan.chain.pem root@192.168.1.1:/etc/ssl/mon.lan.chain.pem
 
 scp remote1.sh root@192.168.1.1:
 scp remote2.sh root@192.168.1.1:

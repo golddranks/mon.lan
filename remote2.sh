@@ -69,7 +69,7 @@ echo "Start installing external packages."
 opkg update
 opkg install luci-ssl-nginx
 
-sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.crt|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
+sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.chain.pem|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
 
 /etc/init.d/nginx reload
 
@@ -135,6 +135,19 @@ EOF
 uci commit ddns
 
 echo "DynDNS settings done."
+
+
+# The luci config file conflicts with the new package
+opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
+# Resolve conflict with an upgraded config file
+mv /etc/config/luci-opkg /etc/config/luci || true
+
+echo "Base packages upgraded"
+
+
+opkg install curl nano coreutils-base64 wget bind-dig tcpdump
+
+echo "utilities installed."
 
 
 GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
@@ -208,19 +221,6 @@ echo "net.ipv6.conf.all.proxy_ndp = 1" > /etc/sysctl.conf
 echo "Wireguard settings done."
 reload_config
 
-
-
-# The luci config file conflicts with the new package
-opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
-# Resolve conflict with an upgraded config file
-mv /etc/config/luci-opkg /etc/config/luci || true
-
-echo "Base packages upgraded"
-
-
-opkg install curl nano coreutils-base64 wget bind-dig tcpdump
-
-echo "utilities installed."
 
 reload_config
 # Remove leases that were made before the static settings
