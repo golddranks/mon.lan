@@ -58,6 +58,14 @@ uci set dhcp.poi.hostid='20'
 uci set dhcp.poi.dns='1'
 uci commit dhcp
 
+uci set dhcp.poi=host
+uci set dhcp.poi.name='bae'
+uci set dhcp.poi.mac='F4:5C:89:AA:C3:DD'
+uci set dhcp.poi.ip='10.0.0.30'
+uci set dhcp.poi.hostid='30'
+uci set dhcp.poi.dns='1'
+uci commit dhcp
+
 echo "DHCP static lease settings done."
 
 
@@ -139,9 +147,9 @@ config service 'drasa_eu_ipv6'
 	option domain 'drasa.eu'
 	option username '@'
 	option password '$GANDI_API_KEY'
-	option ip_source 'network'
-	option ip_network 'wan6'
-	option interface 'wan6'
+	option ip_source 'interface'
+	option ip_interface 'eth0.2'
+	option interface 'eth0.2'
 	option use_syslog '2'
 	option check_unit 'minutes'
 	option force_unit 'minutes'
