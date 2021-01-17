@@ -20,5 +20,8 @@ scp mon.lan.crt root@192.168.1.1:/etc/ssl/mon.lan.crt
 rm mon.lan.key
 rm mon.lan.crt
 
-scp remote.sh root@192.168.1.1:
-ssh root@192.168.1.1 "./remote.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW' '$GANDI_API_KEY' '$WG_KEY' '$WG_PRESHARED_KEY'"
+scp remote1.sh root@192.168.1.1:
+scp remote2.sh root@192.168.1.1:
+ssh root@192.168.1.1 "./remote1.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW'"
+while ! ping -c 1 10.0.0.1 ; do sleep 2 ; done
+ssh root@mon.lan "./remote2.sh '$GANDI_API_KEY' '$WG_KEY' '$WG_PRESHARED_KEY'"
