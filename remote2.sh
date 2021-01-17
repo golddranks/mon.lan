@@ -26,7 +26,22 @@ uci commit dhcp
 uci set network.globals.ula_prefix=''
 uci commit network
 
+# IPv6 tokenized interface identifier support
+cat << EOF > /etc/init.d/ipv6_ra_tokenized
+#!/bin/sh /etc/rc.common
+START=94
+start() {
+until test -e /sys/class/net/eth0.2 ; do sleep 1; done
+echo "Setting up RA+NDP-based IPv6 with tokenized host address."
+sysctl -w net.ipv6.conf.eth0.2.accept_ra=2
+ip token set '::1' dev eth0.2
+}
+EOF
+chmod 0755 /etc/init.d/ipv6_ra_tokenized
+/etc/init.d/ipv6_ra_tokenized enable
+
 echo "IPv6 settings done."
+
 
 uci set dhcp.nagi=host
 uci set dhcp.nagi.name='nagi'
@@ -145,7 +160,7 @@ mv /etc/config/luci-opkg /etc/config/luci || true
 echo "Base packages upgraded"
 
 
-opkg install curl nano coreutils-base64 wget bind-dig tcpdump
+opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full
 
 echo "utilities installed."
 
@@ -154,11 +169,6 @@ GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+
 echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
 
 opkg install luci-proto-wireguard luci-app-wireguard
-uci set network.wg0=interface
-uci set network.wg0.proto='wireguard'
-uci set network.wg0.private_key="$WG_KEY"
-uci set network.wg0.listen_port='51820'
-uci set network.wg0.addresses="10.0.99.1/24 ${GLOBAL_IPV6_PREFIX}:9999:1/112"
 
 cat << EOF > /etc/init.d/wg_proxy
 #!/bin/sh /etc/rc.common
@@ -167,10 +177,16 @@ start() {
 until test -e /sys/class/net/eth0.2 ; do sleep 1; done
 until test -e /sys/class/net/br-lan ; do sleep 1; done
 echo "Setting up WireGuard NDP proxy."
-ip -6 neigh add proxy 2404:7a80:9621:7100::9999:1 dev eth0.2
-ip -6 neigh add proxy 2404:7a80:9621:7100::9999:1 dev br-lan
 EOF
 chmod 0755 /etc/init.d/wg_proxy
+
+uci set network.wg0=interface
+uci set network.wg0.proto='wireguard'
+uci set network.wg0.private_key="$WG_KEY"
+uci set network.wg0.listen_port='51820'
+uci set network.wg0.addresses="10.0.99.1/24 ${GLOBAL_IPV6_PREFIX}:9999:1/112"
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:1 dev eth0.2" /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:1 dev br-lan" /etc/init.d/wg_proxy
 
 uci set network.bae=wireguard_wg0
 uci set network.bae.description='bae'
@@ -179,8 +195,8 @@ uci set network.bae.preshared_key="$WG_PRESHARED_KEY"
 uci set network.bae.allowed_ips="10.0.99.10/32 ${GLOBAL_IPV6_PREFIX}:9999:10/128"
 uci set network.bae.route_allowed_ips='1'
 uci set network.bae.persistent_keepalive='25'
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:10 dev eth0.2" >> /etc/init.d/wg_proxy
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:10 dev br-lan" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:10 dev eth0.2" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:10 dev br-lan" >> /etc/init.d/wg_proxy
 
 uci set network.one_plus=wireguard_wg0
 uci set network.one_plus.description='one_plus'
@@ -189,8 +205,8 @@ uci set network.one_plus.preshared_key="$WG_PRESHARED_KEY"
 uci set network.one_plus.allowed_ips="10.0.99.20/32 ${GLOBAL_IPV6_PREFIX}:9999:20/128"
 uci set network.one_plus.route_allowed_ips='1'
 uci set network.one_plus.persistent_keepalive='25'
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:20 dev eth0.2" >> /etc/init.d/wg_proxy
-echo "ip -6 neigh add proxy 2404:7a80:9621:7100::9999:20 dev br-lan" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:20 dev eth0.2" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:20 dev br-lan" >> /etc/init.d/wg_proxy
 
 echo "echo 'WireGuard NDP proxy set up.'" >> /etc/init.d/wg_proxy
 echo "}" >> /etc/init.d/wg_proxy
