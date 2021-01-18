@@ -7,89 +7,23 @@ WG_PRESHARED_KEY=${3:?}
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
-# Set LAN to relay mode to support NDP+RA based addressing
-uci set dhcp.lan.ra='relay'
-uci set dhcp.lan.dhcpv6='relay'
-uci set dhcp.lan.ndp='relay'
-
-# Add WAN6 interface, set it to relay mode and master
-uci set dhcp.wan6=dhcp
-uci set dhcp.wan6.interface='wan6'
-uci set dhcp.wan6.ignore='1'
-uci set dhcp.wan6.master='1'
-uci set dhcp.wan6.dhcpv6='relay'
-uci set dhcp.wan6.ra='relay'
-uci set dhcp.wan6.ndp='relay'
-uci commit dhcp
-
-# MacOS NDP+RA supports only LLA source addresses, so don't use ULA
-uci set network.globals.ula_prefix=''
-uci commit network
-
-# IPv6 tokenized interface identifier support
-cat << EOF > /etc/init.d/ipv6_ra_tokenized
-#!/bin/sh /etc/rc.common
-START=94
-start() {
-until test -e /sys/class/net/eth0.2 ; do sleep 1; done
-echo "Setting up RA+NDP-based IPv6 with tokenized host address."
-sysctl -w net.ipv6.conf.eth0.2.accept_ra=2
-ip token set '::1' dev eth0.2
-}
-EOF
-chmod 0755 /etc/init.d/ipv6_ra_tokenized
-/etc/init.d/ipv6_ra_tokenized enable
-
-echo "IPv6 settings done."
-
-
-uci set dhcp.nagi=host
-uci set dhcp.nagi.name='nagi'
-uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
-uci set dhcp.nagi.ip='10.0.0.10'
-uci set dhcp.nagi.hostid='10'
-uci set dhcp.nagi.dns='1'
-
-uci set dhcp.poi=host
-uci set dhcp.poi.name='poi'
-uci set dhcp.poi.mac='DC:A6:32:08:DB:FC'
-uci set dhcp.poi.ip='10.0.0.20'
-uci set dhcp.poi.hostid='20'
-uci set dhcp.poi.dns='1'
-uci commit dhcp
-
-uci set dhcp.poi=host
-uci set dhcp.poi.name='bae'
-uci set dhcp.poi.mac='F4:5C:89:AA:C3:DD'
-uci set dhcp.poi.ip='10.0.0.30'
-uci set dhcp.poi.hostid='30'
-uci set dhcp.poi.dns='1'
-uci commit dhcp
-
-echo "DHCP static lease settings done."
-
-
-uci set firewall.ssh_redirect=redirect
-uci set firewall.ssh_redirect.target='DNAT'
-uci set firewall.ssh_redirect.name='SSH'
-uci set firewall.ssh_redirect.src='wan'
-uci set firewall.ssh_redirect.src_dport='22'
-uci set firewall.ssh_redirect.dest_ip='10.0.0.20'
-uci set firewall.ssh_redirect.dest_port='22'
-uci commit firewall
-
-echo "Port forwarding settings done."
-
-
-reload_config
-echo "Wait for network && DNS before accessing package repo."
-ubus -t 30 wait_for network.interface.wan
-ubus -t 30 wait_for dnsmasq
-
-
 echo "Start installing external packages."
 
 opkg update
+
+# The luci config file conflicts with the new package
+opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
+# Resolve conflict with an upgraded config file
+mv /etc/config/luci-opkg /etc/config/luci || true
+
+echo "Base packages upgraded"
+
+
+opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full diffutils
+
+echo "utilities installed."
+
+
 opkg install luci-ssl-nginx
 
 sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.chain.pem|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
@@ -160,19 +94,6 @@ uci commit ddns
 echo "DynDNS settings done."
 
 
-# The luci config file conflicts with the new package
-opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
-# Resolve conflict with an upgraded config file
-mv /etc/config/luci-opkg /etc/config/luci || true
-
-echo "Base packages upgraded"
-
-
-opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full
-
-echo "utilities installed."
-
-
 GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
 echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
 
@@ -241,14 +162,7 @@ uci commit dhcp
 # Enable proxying NDP messages between external interfaces and wg0
 echo "net.ipv6.conf.all.proxy_ndp = 1" > /etc/sysctl.conf
 
-
 echo "Wireguard settings done."
-reload_config
-
-
-reload_config
-# Remove leases that were made before the static settings
-rm -f /tmp/dhcp.leases
 
 
 echo "Rebooting."
