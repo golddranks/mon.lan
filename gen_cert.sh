@@ -10,6 +10,7 @@ openssl req -new -key cert/drasa.eu.key -outform PEM -keyform PEM  -sha256 -out 
 openssl x509 -req -in cert/drasa.eu.csr -sha256 -CA cert/inca.pem -CAkey cert/inca.key -set_serial "0x${SERIAL}1" -days 730 -extfile cert/drasa.eu.cfg -out cert/drasa.eu.pem
 cat cert/drasa.eu.pem > cert/drasa.eu.chain.pem
 cat cert/inca.pem >> cert/drasa.eu.chain.pem
+cat cert/rootca.pem >> cert/drasa.eu.chain.pem
 
 
 cat << EOF > cert/mon.lan.cfg
@@ -20,3 +21,4 @@ openssl req -new -key cert/mon.lan.key -outform PEM -keyform PEM  -sha256 -out c
 openssl x509 -req -in cert/mon.lan.csr -sha256 -CA cert/inca.pem -CAkey cert/inca.key -set_serial "0x${SERIAL}2" -days 730 -extfile cert/mon.lan.cfg -out cert/mon.lan.pem
 cat cert/mon.lan.pem > cert/mon.lan.chain.pem
 cat cert/inca.pem >> cert/mon.lan.chain.pem
+cat cert/rootca.pem >> cert/mon.lan.chain.pem
