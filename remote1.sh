@@ -9,6 +9,7 @@ WIFI_PW=${5:?}
 
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
 
+# Add the host pubkey of the installer host
 echo "$SSH_PUBKEY" > /etc/dropbear/authorized_keys
 
 # For convenience, add nagi, bae & OnePlus regardless
@@ -28,15 +29,25 @@ uci commit dropbear
 
 echo "Security config done."
 
+
+# Lan
 uci set network.lan.ipaddr='10.0.0.1'
 uci set network.lan.ip6ifaceid='::1'
+
+# Internet
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
 uci set network.wan.password="$PPP_PW"
-uci set network.wan6.proto='static'
-uci set network.wan6.ip6ifaceid='::1' # Not sure if this does anything?
+
+# IPv6
+uci set network.wan6.proto='dhcpv6'
+uci set network.wan6.ifaceid='::1'
+# MacOS NDP+RA IPv6 address selection supports only LLA source addresses, so don't use ULA:
+uci set network.globals.ula_prefix=''
+
 uci commit network
 
+# Wifi
 uci set wireless.default_radio0.ssid='Skeletor 5Ghz'
 uci set wireless.default_radio0.key="$WIFI_PW"
 uci set wireless.default_radio0.encryption='psk2'
@@ -49,21 +60,17 @@ uci set wireless.radio1.disabled='0'
 uci set wireless.radio1.country='JP'
 uci commit wireless
 
+# General system settings
 uci set system.cfg01e48a.hostname='mon'
 uci set system.cfg01e48a.timezone='JST-9'
 uci set system.cfg01e48a.zonename='Asia/Tokyo'
 uci commit system
 
-
-echo "Basic network config done."
-
-
-# Set LAN to relay mode to support NDP+RA based addressing
+# Set LAN to relay mode to support NDP+RA based IPv6 addressing
 uci set dhcp.lan.ra='relay'
 uci set dhcp.lan.dhcpv6='relay'
 uci set dhcp.lan.ndp='relay'
-
-# Add WAN6 interface, set it to relay mode and master
+# Add WAN6 interface, set it to relay mode and master:
 uci set dhcp.wan6=dhcp
 uci set dhcp.wan6.interface='wan6'
 uci set dhcp.wan6.ignore='1'
@@ -73,27 +80,10 @@ uci set dhcp.wan6.ra='relay'
 uci set dhcp.wan6.ndp='relay'
 uci commit dhcp
 
-# MacOS NDP+RA supports only LLA source addresses, so don't use ULA
-uci set network.globals.ula_prefix=''
-uci commit network
-
-# IPv6 tokenized interface identifier support
-cat << EOF > /etc/init.d/ipv6_ra_tokenized
-#!/bin/sh /etc/rc.common
-START=94
-start() {
-until test -e /sys/class/net/eth0.2 ; do sleep 1; done
-echo "Setting up RA+NDP-based IPv6 with tokenized host address."
-sysctl -w net.ipv6.conf.eth0.2.accept_ra=2
-ip token set '::1' dev eth0.2
-}
-EOF
-chmod 0755 /etc/init.d/ipv6_ra_tokenized
-/etc/init.d/ipv6_ra_tokenized enable
-
-echo "IPv6 settings done."
+echo "Basic network config done."
 
 
+# Set DHCP static leases
 uci set dhcp.nagi=host
 uci set dhcp.nagi.name='nagi'
 uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
@@ -120,6 +110,7 @@ uci commit dhcp
 echo "DHCP static lease settings done."
 
 
+# Port forwarding (expose poi SSH)
 uci set firewall.ssh_redirect=redirect
 uci set firewall.ssh_redirect.target='DNAT'
 uci set firewall.ssh_redirect.name='SSH'
@@ -128,7 +119,6 @@ uci set firewall.ssh_redirect.src_dport='22'
 uci set firewall.ssh_redirect.dest_ip='10.0.0.20'
 uci set firewall.ssh_redirect.dest_port='22'
 uci commit firewall
-
 
 echo "Port forwarding settings done."
 

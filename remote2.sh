@@ -21,23 +21,27 @@ echo "Base packages upgraded"
 
 opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full diffutils
 
-echo "utilities installed."
+echo "Utilities installed."
 
 
+# Install nginx to support performant HTTPS admin panel
 opkg install luci-ssl-nginx
 
+# Use our own certificate
 sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.chain.pem|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
 
-/etc/init.d/nginx reload
+/etc/init.d/nginx restart
 
 echo "HTTPS enabled on web interface."
 
-# It doesn't seem to work with two radios, so setting up only the 2.5Ghz one.
-uci set wireless.default_radio1.wps_pushbutton='1'
-uci commit wireless
 
+# Set up WPS
+# It doesn't seem to work with two radios, so setting up only the 2.5Ghz one.
 opkg remove wpad-basic
 opkg install wpad hostapd-utils
+
+uci set wireless.default_radio1.wps_pushbutton='1'
+uci commit wireless
 
 cat << EOF > /root/wps.sh
 #!/bin/sh
@@ -49,6 +53,7 @@ chmod 0755 /root/wps.sh
 echo "WPS settings done."
 
 
+# Set up dynamic DNS (Gandi)
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-services_2.8.2-4_all.ipk
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts_2.8.2-4_all.ipk
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-gandi_2.8.2-4_all.ipk
@@ -94,6 +99,7 @@ uci commit ddns
 echo "DynDNS settings done."
 
 
+# Set up Wireguard
 GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
 echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
 
