@@ -54,11 +54,13 @@ echo "WPS settings done."
 
 
 # Set up dynamic DNS (Gandi)
+# Gandi is not supported in 19.07, so downloading the trunk packages:
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-services_2.8.2-4_all.ipk
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts_2.8.2-4_all.ipk
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-gandi_2.8.2-4_all.ipk
 opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/luci-app-ddns_git-20.356.70818-05328b2_all.ipk
 
+# Remove placeholder settings
 uci delete ddns.myddns_ipv4 || true
 uci delete ddns.myddns_ipv6 || true
 uci -m import ddns << EOF
@@ -86,9 +88,9 @@ config service 'drasa_eu_ipv6'
 	option domain 'drasa.eu'
 	option username '@'
 	option password '$GANDI_API_KEY'
-	option ip_source 'interface'
-	option ip_interface 'eth0.2'
-	option interface 'eth0.2'
+	option ip_source 'network'
+	option ip_interface 'wan6'
+	option interface 'wan6'
 	option use_syslog '2'
 	option check_unit 'minutes'
 	option force_unit 'minutes'
