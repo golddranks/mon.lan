@@ -6,8 +6,9 @@ PPP_ID=${3:?}
 PPP_PW=${4:?}
 WIFI_PW=${5:?}
 
+. /etc/openwrt_release
 
-echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
+echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: $DISTRIB_DESCRIPTION"
 
 # Add the host pubkey of the installer host
 echo "$SSH_PUBKEY" > /etc/dropbear/authorized_keys
@@ -32,7 +33,6 @@ echo "Security config done."
 
 # Lan
 uci set network.lan.ipaddr='10.0.0.1'
-uci set network.lan.ip6ifaceid='::1'
 
 # Internet
 uci set network.wan.proto='pppoe'
@@ -44,8 +44,21 @@ uci set network.wan6.proto='dhcpv6'
 uci set network.wan6.ifaceid='::1'
 # MacOS NDP+RA IPv6 address selection supports only LLA source addresses, so don't use ULA:
 uci set network.globals.ula_prefix=''
-
 uci commit network
+
+# Set LAN to relay mode to support NDP+RA based IPv6 addressing
+uci set dhcp.lan.ra='relay'
+uci set dhcp.lan.dhcpv6='relay'
+uci set dhcp.lan.ndp='relay'
+# Add WAN6 interface, set it to relay mode and master:
+uci set dhcp.wan6=dhcp
+uci set dhcp.wan6.interface='wan6'
+uci set dhcp.wan6.ignore='1'
+uci set dhcp.wan6.master='1'
+uci set dhcp.wan6.dhcpv6='relay'
+uci set dhcp.wan6.ra='relay'
+uci set dhcp.wan6.ndp='relay'
+uci commit dhcp
 
 # Wifi
 uci set wireless.default_radio0.ssid='Skeletor 5Ghz'
@@ -66,20 +79,6 @@ uci set system.cfg01e48a.timezone='JST-9'
 uci set system.cfg01e48a.zonename='Asia/Tokyo'
 uci commit system
 
-# Set LAN to relay mode to support NDP+RA based IPv6 addressing
-uci set dhcp.lan.ra='relay'
-uci set dhcp.lan.dhcpv6='relay'
-uci set dhcp.lan.ndp='relay'
-# Add WAN6 interface, set it to relay mode and master:
-uci set dhcp.wan6=dhcp
-uci set dhcp.wan6.interface='wan6'
-uci set dhcp.wan6.ignore='1'
-uci set dhcp.wan6.master='1'
-uci set dhcp.wan6.dhcpv6='relay'
-uci set dhcp.wan6.ra='relay'
-uci set dhcp.wan6.ndp='relay'
-uci commit dhcp
-
 echo "Basic network config done."
 
 
@@ -97,14 +96,13 @@ uci set dhcp.poi.mac='DC:A6:32:08:DB:FC'
 uci set dhcp.poi.ip='10.0.0.20'
 uci set dhcp.poi.hostid='20'
 uci set dhcp.poi.dns='1'
-uci commit dhcp
 
-uci set dhcp.poi=host
-uci set dhcp.poi.name='bae'
-uci set dhcp.poi.mac='F4:5C:89:AA:C3:DD'
-uci set dhcp.poi.ip='10.0.0.30'
-uci set dhcp.poi.hostid='30'
-uci set dhcp.poi.dns='1'
+uci set dhcp.bae=host
+uci set dhcp.bae.name='bae'
+uci set dhcp.bae.mac='F4:5C:89:AA:C3:DD'
+uci set dhcp.bae.ip='10.0.0.30'
+uci set dhcp.bae.hostid='30'
+uci set dhcp.bae.dns='1'
 uci commit dhcp
 
 echo "DHCP static lease settings done."

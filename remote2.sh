@@ -4,17 +4,36 @@ GANDI_API_KEY=${1:?}
 WG_KEY=${2:?}
 WG_PRESHARED_KEY=${3:?}
 
+. /etc/openwrt_release
 
-echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: OpenWrt 19.07.5."
+echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: $DISTRIB_DESCRIPTION"
 
 echo "Start installing external packages."
 
 opkg update
 
-# The luci config file conflicts with the new package
-opkg list-upgradable | cut -f 1 -d ' ' | xargs --no-run-if-empty opkg upgrade
-# Resolve conflict with an upgraded config file
-mv /etc/config/luci-opkg /etc/config/luci || true
+echo "Updated packet list."
+
+PACKAGES=$(opkg list-upgradable | cut -f 1 -d ' ')
+
+if [ -n "$PACKAGES" ]; then
+	echo "Packages to upgrade: $(echo $PACKAGES | tr '\n' ' ')"
+	mkdir packages
+	cd packages
+	# We download the packages first because "opkg upgrade dnsmasq" seems to disable
+	# dnsmasq BEFORE downloading the upgrades, which makes the downloads fail
+	echo "$PACKAGES" | xargs opkg download
+	echo "Packages downloaded:"
+	ls -lah *.ipk
+	opkg install *.ipk
+	# The luci config file conflicts with the new package
+	# Resolve conflict with an upgraded config file
+	mv /etc/config/luci-opkg /etc/config/luci || true
+	# We'll ignore upgrading the DHCP settings file because we already changed it
+	reload_config
+	cd ..
+	rm -rf packages
+fi
 
 echo "Base packages upgraded"
 
@@ -55,10 +74,12 @@ echo "WPS settings done."
 
 # Set up dynamic DNS (Gandi)
 # Gandi is not supported in 19.07, so downloading the trunk packages:
-opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-services_2.8.2-4_all.ipk
-opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts_2.8.2-4_all.ipk
-opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages/ddns-scripts-gandi_2.8.2-4_all.ipk
-opkg install http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/luci-app-ddns_git-20.356.70818-05328b2_all.ipk
+echo "src/gz openwrt_snapshot_packages http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages" >> /etc/opkg/customfeeds.conf
+echo "src/gz openwrt_snapshot_luci http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/" >> /etc/opkg/customfeeds.conf
+opkg update
+opkg install luci-app-ddns ddns-scripts-gandi
+echo "" > /etc/opkg/customfeeds.conf
+opkg update
 
 # Remove placeholder settings
 uci delete ddns.myddns_ipv4 || true
