@@ -83,12 +83,12 @@ echo "Basic network config done."
 
 
 # Set DHCP static leases
-uci set dhcp.nagi=host
-uci set dhcp.nagi.name='nagi'
-uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
-uci set dhcp.nagi.ip='10.0.0.10'
-uci set dhcp.nagi.hostid='10'
-uci set dhcp.nagi.dns='1'
+uci set dhcp.mame=host
+uci set dhcp.mame.name='mame'
+uci set dhcp.mame.mac='08:2E:5F:1B:C5:F0'
+uci set dhcp.mame.ip='10.0.0.10'
+uci set dhcp.mame.hostid='10'
+uci set dhcp.mame.dns='1'
 
 uci set dhcp.poi=host
 uci set dhcp.poi.name='poi'
@@ -97,11 +97,18 @@ uci set dhcp.poi.ip='10.0.0.20'
 uci set dhcp.poi.hostid='20'
 uci set dhcp.poi.dns='1'
 
+uci set dhcp.nagi=host
+uci set dhcp.nagi.name='nagi'
+uci set dhcp.nagi.mac='A8:A1:59:36:BE:32'
+uci set dhcp.nagi.ip='10.0.0.30'
+uci set dhcp.nagi.hostid='30'
+uci set dhcp.nagi.dns='1'
+
 uci set dhcp.bae=host
 uci set dhcp.bae.name='bae'
 uci set dhcp.bae.mac='F4:5C:89:AA:C3:DD'
-uci set dhcp.bae.ip='10.0.0.30'
-uci set dhcp.bae.hostid='30'
+uci set dhcp.bae.ip='10.0.0.40'
+uci set dhcp.bae.hostid='40'
 uci set dhcp.bae.dns='1'
 uci commit dhcp
 
