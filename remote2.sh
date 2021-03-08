@@ -154,8 +154,8 @@ uci set network.wg_lan.proto='wireguard'
 uci set network.wg_lan.private_key="$WG_KEY"
 uci set network.wg_lan.listen_port='51820'
 uci set network.wg_lan.addresses="10.0.99.1/24 ${GLOBAL_IPV6_PREFIX}:9999:1/112"
-echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:1 dev eth0.2" /etc/init.d/wg_proxy
-echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:1 dev br-lan" /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:9999:1 dev eth0.2" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:9999:1 dev br-lan" >> /etc/init.d/wg_proxy
 
 # wg_dmz is untrusted wireguard interface
 uci set network.wg_dmz=interface
@@ -163,8 +163,8 @@ uci set network.wg_dmz.proto='wireguard'
 uci set network.wg_dmz.private_key="$WG_KEY"
 uci set network.wg_dmz.listen_port='51821'
 uci set network.wg_dmz.addresses="10.0.66.1/24 ${GLOBAL_IPV6_PREFIX}:6666:1/112"
-echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::6666:1 dev eth0.2" /etc/init.d/wg_proxy
-echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::6666:1 dev br-lan" /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:6666:1 dev eth0.2" >> /etc/init.d/wg_proxy
+echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:6666:1 dev br-lan" >> /etc/init.d/wg_proxy
 
 function create_lan_peer () {
 	uci set network.$1=wireguard_wg_lan
@@ -174,8 +174,8 @@ function create_lan_peer () {
 	uci set network.$1.allowed_ips="10.0.99.$3/32 ${GLOBAL_IPV6_PREFIX}:9999:$3/128"
 	uci set network.$1.route_allowed_ips='1'
 	uci set network.$1.persistent_keepalive='25'
-	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:$3 dev eth0.2" >> /etc/init.d/wg_proxy
-	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::9999:$3 dev br-lan" >> /etc/init.d/wg_proxy
+	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:9999:$3 dev eth0.2" >> /etc/init.d/wg_proxy
+	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:9999:$3 dev br-lan" >> /etc/init.d/wg_proxy
 }
 
 function create_dmz_peer () {
@@ -186,8 +186,8 @@ function create_dmz_peer () {
 	uci set network.$1.allowed_ips="10.0.66.$3/32 ${GLOBAL_IPV6_PREFIX}:6666:$3/128"
 	uci set network.$1.route_allowed_ips='1'
 	uci set network.$1.persistent_keepalive='25'
-	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::6666:$3 dev eth0.2" >> /etc/init.d/wg_proxy
-	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::6666:$3 dev br-lan" >> /etc/init.d/wg_proxy
+	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:6666:$3 dev eth0.2" >> /etc/init.d/wg_proxy
+	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:6666:$3 dev br-lan" >> /etc/init.d/wg_proxy
 }
 
 create_lan_peer bae 'is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4=' 10
@@ -206,7 +206,7 @@ uci set firewall.cfg02dc81.network='lan wg_lan'
 # Create a DMZ zone for wg_dmz
 uci set firewall.dmz=zone
 uci set firewall.dmz.name='dmz'
-uci set firewall.dmz.input='ACCEPT'
+uci set firewall.dmz.input='REJECT'
 uci set firewall.dmz.output='ACCEPT'
 uci set firewall.dmz.forward='REJECT'
 uci set firewall.dmz.network='wg_dmz'
@@ -218,6 +218,12 @@ uci set firewall.lan2dmz.dest='dmz'
 uci set firewall.dmz2wan=forwarding
 uci set firewall.dmz2wan.src='dmz'
 uci set firewall.dmz2wan.dest='wan'
+
+uci set firewall.allow_dns_from_dmz=rule
+uci set firewall.allow_dns_from_dmz.name='Allow DNS from DMZ'
+uci set firewall.allow_dns_from_dmz.src='dmz'
+uci set firewall.allow_dns_from_dmz.dest_port='53'
+uci set firewall.allow_dns_from_dmz.target='ACCEPT'
 
 # Add Allow-Wireguard LAN (trusted) port hole to firewall
 uci set firewall.allow_wireguard_lan=rule
