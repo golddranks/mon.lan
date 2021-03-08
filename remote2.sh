@@ -220,10 +220,30 @@ uci set firewall.dmz2wan.src='dmz'
 uci set firewall.dmz2wan.dest='wan'
 
 uci set firewall.allow_dns_from_dmz=rule
-uci set firewall.allow_dns_from_dmz.name='Allow DNS from DMZ'
+uci set firewall.allow_dns_from_dmz.name='Allow DNS on mon.lan from DMZ'
 uci set firewall.allow_dns_from_dmz.src='dmz'
 uci set firewall.allow_dns_from_dmz.dest_port='53'
 uci set firewall.allow_dns_from_dmz.target='ACCEPT'
+
+uci set firewall.allow_ping_router_from_dmz=rule
+uci set firewall.allow_ping_router_from_dmz.name='Allow ping on mon.lan from DMZ'
+uci set firewall.allow_ping_router_from_dmz.src='dmz'
+uci set firewall.allow_ping_router_from_dmz.proto='icmp'
+uci set firewall.allow_ping_router_from_dmz.target='ACCEPT'
+
+uci set firewall.allow_common_from_dmz=rule
+uci set firewall.allow_common_from_dmz.name='Allow forwarding HTTP(S) and SSH from DMZ'
+uci set firewall.allow_common_from_dmz.src='dmz'
+uci set firewall.allow_common_from_dmz.dest='lan'
+uci set firewall.allow_common_from_dmz.dest_port='22 80 443'
+uci set firewall.allow_common_from_dmz.target='ACCEPT'
+
+uci set firewall.allow_ping_lan_from_dmz=rule
+uci set firewall.allow_ping_lan_from_dmz.name='Allow forwarding ping from DMZ'
+uci set firewall.allow_ping_lan_from_dmz.src='dmz'
+uci set firewall.allow_ping_lan_from_dmz.dest='lan'
+uci set firewall.allow_ping_lan_from_dmz.proto='icmp'
+uci set firewall.allow_ping_lan_from_dmz.target='ACCEPT'
 
 # Add Allow-Wireguard LAN (trusted) port hole to firewall
 uci set firewall.allow_wireguard_lan=rule
