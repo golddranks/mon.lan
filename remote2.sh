@@ -14,22 +14,32 @@ opkg update
 
 echo "Updated packet list."
 
+# Some packages seem to cause problems when installed together, so let's upgrade them one-by-one
+opkg upgrade dnsmasq
+sleep 5
+opkg upgrade opkg
+sleep 5
+opkg upgrade wpad-basic
+sleep 5
+
 PACKAGES=$(opkg list-upgradable | cut -f 1 -d ' ')
 
 if [ -n "$PACKAGES" ]; then
 	echo "Packages to upgrade: $(echo $PACKAGES | tr '\n' ' ')"
-	mkdir packages
+	mkdir -p packages
 	cd packages
+
 	# We download the packages first because "opkg upgrade dnsmasq" seems to disable
 	# dnsmasq BEFORE downloading the upgrades, which makes the downloads fail
 	echo "$PACKAGES" | xargs opkg download
 	echo "Packages downloaded:"
 	ls -lah *.ipk
+
+	# Install the rest
 	opkg install *.ipk
 	# The luci config file conflicts with the new package
 	# Resolve conflict with an upgraded config file
 	mv /etc/config/luci-opkg /etc/config/luci || true
-	# We'll ignore upgrading the DHCP settings file because we already changed it
 	reload_config
 	cd ..
 	rm -rf packages
@@ -158,7 +168,7 @@ echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}::6666:1 dev br-lan" /etc/init.
 
 function create_lan_peer () {
 	uci set network.$1=wireguard_wg_lan
-	uci set network.$1.description='$1'
+	uci set network.$1.description="$1"
 	uci set network.$1.public_key=$2
 	uci set network.$1.preshared_key="$WG_PRESHARED_KEY"
 	uci set network.$1.allowed_ips="10.0.99.$3/32 ${GLOBAL_IPV6_PREFIX}:9999:$3/128"
@@ -170,7 +180,7 @@ function create_lan_peer () {
 
 function create_dmz_peer () {
 	uci set network.$1=wireguard_wg_dmz
-	uci set network.$1.description='$1'
+	uci set network.$1.description="$1"
 	uci set network.$1.public_key=$2
 	uci set network.$1.preshared_key="$WG_PRESHARED_KEY"
 	uci set network.$1.allowed_ips="10.0.66.$3/32 ${GLOBAL_IPV6_PREFIX}:6666:$3/128"

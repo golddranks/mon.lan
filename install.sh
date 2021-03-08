@@ -21,6 +21,7 @@ scp cert/mon.lan.chain.pem root@192.168.1.1:/etc/ssl/mon.lan.chain.pem
 # Sending the install scripts
 scp remote1.sh root@192.168.1.1:
 scp remote2.sh root@192.168.1.1:
+scp ../pubkeys/authorized_keys_strict root@192.168.1.1:
 ssh root@192.168.1.1 "./remote1.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW'"
 
 # Wait for reboot
