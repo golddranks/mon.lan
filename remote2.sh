@@ -136,7 +136,7 @@ echo "DynDNS settings done."
 GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
 echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
 
-opkg install luci-proto-wireguard luci-app-wireguard
+opkg install luci-proto-wireguard luci-app-wireguard qrencode
 
 cat << EOF > /etc/init.d/wg_proxy
 #!/bin/sh /etc/rc.common
@@ -144,7 +144,7 @@ START=94
 start() {
 until test -e /sys/class/net/eth0.2 ; do sleep 1; done
 until test -e /sys/class/net/br-lan ; do sleep 1; done
-echo "Setting up WireGuard NDP proxy."
+logger -p daemon.info -t wg_proxy 'Setting up WireGuard NDP proxy.'
 EOF
 chmod 0755 /etc/init.d/wg_proxy
 
@@ -191,14 +191,23 @@ function create_dmz_peer () {
 }
 
 create_lan_peer bae 'is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4=' 10
-create_lan_peer one_plus 'DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU=' 20
-create_dmz_peer 'bae_dmz' 'is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4=' 10
+create_lan_peer opl 'DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU=' 20
+create_dmz_peer bae_dmz 'QTGbWzt70RrG+2ymLMqaPwSx4OxsL1IP3yhOTxQ8JCs=' 10
+create_dmz_peer opl_dmz 'QhsUPBja4sl8QVe66R0/LnR/WtxqfRn2oj4/NTWFjEc=' 20
 
-echo "echo 'WireGuard NDP proxy set up.'" >> /etc/init.d/wg_proxy
+echo "logger -p daemon.info -t wg_proxy 'WireGuard NDP proxy succesfully set up.'" >> /etc/init.d/wg_proxy
 echo "}" >> /etc/init.d/wg_proxy
 /etc/init.d/wg_proxy enable
 
 uci commit network
+
+# Allow Wireguard ports
+uci set firewall.allow_wireguard=rule
+uci set firewall.allow_wireguard.name='Input Wireguard'
+uci set firewall.allow_wireguard.proto='udp'
+uci set firewall.allow_wireguard.src='wan'
+uci set firewall.allow_wireguard.dest_port='51820 51821'
+uci set firewall.allow_wireguard.target='ACCEPT'
 
 # Add wg_lan as part of LAN zone
 uci set firewall.cfg02dc81.network='lan wg_lan'
@@ -219,47 +228,32 @@ uci set firewall.dmz2wan=forwarding
 uci set firewall.dmz2wan.src='dmz'
 uci set firewall.dmz2wan.dest='wan'
 
-uci set firewall.allow_dns_from_dmz=rule
-uci set firewall.allow_dns_from_dmz.name='Allow DNS on mon.lan from DMZ'
-uci set firewall.allow_dns_from_dmz.src='dmz'
-uci set firewall.allow_dns_from_dmz.dest_port='53'
-uci set firewall.allow_dns_from_dmz.target='ACCEPT'
+uci set firewall.input_dns_dmz=rule
+uci set firewall.input_dns_dmz.name='Input DNS from DMZ'
+uci set firewall.input_dns_dmz.src='dmz'
+uci set firewall.input_dns_dmz.dest_port='53'
+uci set firewall.input_dns_dmz.target='ACCEPT'
 
-uci set firewall.allow_ping_router_from_dmz=rule
-uci set firewall.allow_ping_router_from_dmz.name='Allow ping on mon.lan from DMZ'
-uci set firewall.allow_ping_router_from_dmz.src='dmz'
-uci set firewall.allow_ping_router_from_dmz.proto='icmp'
-uci set firewall.allow_ping_router_from_dmz.target='ACCEPT'
+uci set firewall.input_icmp_dmz=rule
+uci set firewall.input_icmp_dmz.name='Input ICMP from DMZ'
+uci set firewall.input_icmp_dmz.src='dmz'
+uci set firewall.input_icmp_dmz.proto='icmp'
+uci set firewall.input_icmp_dmz.target='ACCEPT'
 
-uci set firewall.allow_common_from_dmz=rule
-uci set firewall.allow_common_from_dmz.name='Allow forwarding HTTP(S) and SSH from DMZ'
-uci set firewall.allow_common_from_dmz.src='dmz'
-uci set firewall.allow_common_from_dmz.dest='lan'
-uci set firewall.allow_common_from_dmz.dest_port='22 80 443'
-uci set firewall.allow_common_from_dmz.target='ACCEPT'
+uci set firewall.forward_common_dmz=rule
+uci set firewall.forward_common_dmz.name='Forward HTTP(S) & SSH from DMZ'
+uci set firewall.forward_common_dmz.src='dmz'
+uci set firewall.forward_common_dmz.dest='*'
+uci set firewall.forward_common_dmz.dest_port='22 80 443'
+uci set firewall.forward_common_dmz.target='ACCEPT'
 
-uci set firewall.allow_ping_lan_from_dmz=rule
-uci set firewall.allow_ping_lan_from_dmz.name='Allow forwarding ping from DMZ'
-uci set firewall.allow_ping_lan_from_dmz.src='dmz'
-uci set firewall.allow_ping_lan_from_dmz.dest='lan'
-uci set firewall.allow_ping_lan_from_dmz.proto='icmp'
-uci set firewall.allow_ping_lan_from_dmz.target='ACCEPT'
+uci set firewall.forward_icmp_dmz=rule
+uci set firewall.forward_icmp_dmz.name='Forward ICMP from DMZ'
+uci set firewall.forward_icmp_dmz.src='dmz'
+uci set firewall.forward_icmp_dmz.dest='*'
+uci set firewall.forward_icmp_dmz.proto='icmp'
+uci set firewall.forward_icmp_dmz.target='ACCEPT'
 
-# Add Allow-Wireguard LAN (trusted) port hole to firewall
-uci set firewall.allow_wireguard_lan=rule
-uci set firewall.allow_wireguard_lan.name='Allow-Wireguard LAN'
-uci set firewall.allow_wireguard_lan.proto='udp'
-uci set firewall.allow_wireguard_lan.src='wan'
-uci set firewall.allow_wireguard_lan.dest_port='51820'
-uci set firewall.allow_wireguard_lan.target='ACCEPT'
-
-# Add Allow-Wireguard DMZ (untrusted) port hole to firewall
-uci set firewall.allow_wireguard_dmz=rule
-uci set firewall.allow_wireguard_dmz.name='Allow-Wireguard DMZ'
-uci set firewall.allow_wireguard_dmz.proto='udp'
-uci set firewall.allow_wireguard_dmz.src='wan'
-uci set firewall.allow_wireguard_dmz.dest_port='51821'
-uci set firewall.allow_wireguard_dmz.target='ACCEPT'
 uci commit firewall
 
 # Allow Dnsmasq to respond to queries from Wireguard tunnel
@@ -267,6 +261,7 @@ uci set dhcp.cfg01411c.localservice='0'
 uci commit dhcp
 
 # Enable proxying NDP messages between external interfaces and WG interfaces
+# (Without this 'ip -6 neigh add proxy' doesn't work)
 echo "net.ipv6.conf.all.proxy_ndp = 1" > /etc/sysctl.conf
 
 echo "Wireguard settings done."

@@ -113,40 +113,14 @@ uci commit dhcp
 
 echo "DHCP static lease settings done."
 
+uci set firewall.forward_common_lan=rule
+uci set firewall.forward_common_lan.name='Forward IPv6 HTTP(S) & SSH from WAN'
+uci set firewall.forward_common_lan.family='ipv6'
+uci set firewall.forward_common_lan.src='wan'
+uci set firewall.forward_common_lan.dest='*'
+uci set firewall.forward_common_lan.dest_port='80 443 22'
+uci set firewall.forward_common_lan.target='ACCEPT'
 
-# Port forwarding (expose poi SSH)
-uci set firewall.ssh_redirect=redirect
-uci set firewall.ssh_redirect.target='DNAT'
-uci set firewall.ssh_redirect.name='SSH'
-uci set firewall.ssh_redirect.src='wan'
-uci set firewall.ssh_redirect.dest='lan'
-uci set firewall.ssh_redirect.src_dport='22'
-uci set firewall.ssh_redirect.dest_ip='10.0.0.20'
-uci set firewall.ssh_redirect.dest_port='22'
-
-uci set firewall.allow_http=rule
-uci set firewall.allow_http.name='ALLOW IPv6 HTTPS'
-uci set firewall.allow_http.family='ipv6'
-uci set firewall.allow_http.src='wan'
-uci set firewall.allow_http.dest='lan'
-uci set firewall.allow_http.dest_port='80'
-uci set firewall.allow_http.target='ACCEPT'
-
-uci set firewall.allow_https=rule
-uci set firewall.allow_https.name='ALLOW IPv6 HTTPS'
-uci set firewall.allow_https.family='ipv6'
-uci set firewall.allow_https.src='wan'
-uci set firewall.allow_https.dest='lan'
-uci set firewall.allow_https.dest_port='443'
-uci set firewall.allow_https.target='ACCEPT'
-
-uci set firewall.allow_ssh=rule
-uci set firewall.allow_ssh.name='ALLOW IPv6 SSH'
-uci set firewall.allow_ssh.family='ipv6'
-uci set firewall.allow_ssh.src='wan'
-uci set firewall.allow_ssh.dest='lan'
-uci set firewall.allow_ssh.dest_port='22'
-uci set firewall.allow_ssh.target='ACCEPT'
 uci commit firewall
 
 echo "Port forwarding settings done."
