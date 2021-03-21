@@ -121,6 +121,15 @@ uci set firewall.forward_common_lan.dest='*'
 uci set firewall.forward_common_lan.dest_port='80 443 22'
 uci set firewall.forward_common_lan.target='ACCEPT'
 
+uci set firewall.redirect_http=redirect
+uci set firewall.redirect_http.target='DNAT'
+uci set firewall.redirect_http.name='HTTP redirect'
+uci set firewall.redirect_http.src='wan'
+uci set firewall.redirect_http.src_dport='8080'
+uci set firewall.redirect_http.dest='lan'
+uci set firewall.redirect_http.dest_ip='10.0.0.10'
+uci set firewall.redirect_http.dest_port='443'
+
 uci commit firewall
 
 echo "Port forwarding settings done."
