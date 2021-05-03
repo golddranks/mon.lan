@@ -121,14 +121,41 @@ uci set firewall.forward_common_lan.dest='*'
 uci set firewall.forward_common_lan.dest_port='80 443 22'
 uci set firewall.forward_common_lan.target='ACCEPT'
 
-uci set firewall.redirect_http=redirect
-uci set firewall.redirect_http.target='DNAT'
-uci set firewall.redirect_http.name='HTTP redirect'
-uci set firewall.redirect_http.src='wan'
-uci set firewall.redirect_http.src_dport='666'
-uci set firewall.redirect_http.dest='lan'
-uci set firewall.redirect_http.dest_ip='10.0.0.10'
-uci set firewall.redirect_http.dest_port='443'
+uci set firewall.forward_common_lan=rule
+uci set firewall.forward_common_lan.name='Forward IPv6 Syncthing from WAN (mame)'
+uci set firewall.forward_common_lan.family='ipv6'
+uci set firewall.forward_common_lan.src='wan'
+uci set firewall.forward_common_lan.dest='lan'
+uci set firewall.forward_common_lan.dest_ip='10.0.0.10'
+uci set firewall.forward_common_lan.dest_port='22000'
+uci set firewall.forward_common_lan.target='ACCEPT'
+
+uci set firewall.http_mame=redirect
+uci set firewall.http_mame.target='DNAT'
+uci set firewall.http_mame.name='HTTP redirect (mame)'
+uci set firewall.http_mame.src='wan'
+uci set firewall.http_mame.src_dport='8080'
+uci set firewall.http_mame.dest='lan'
+uci set firewall.http_mame.dest_ip='10.0.0.10'
+uci set firewall.http_mame.dest_port='443'
+
+uci set firewall.syncthing=redirect
+uci set firewall.syncthing.target='DNAT'
+uci set firewall.syncthing.name='Syncthing redirect (mame)'
+uci set firewall.syncthing.src='wan'
+uci set firewall.syncthing.src_dport='22000'
+uci set firewall.syncthing.dest='lan'
+uci set firewall.syncthing.dest_ip='10.0.0.10'
+uci set firewall.syncthing.dest_port='22000'
+
+uci set firewall.ssh_poi=redirect
+uci set firewall.ssh_poi.target='DNAT'
+uci set firewall.ssh_poi.name='SSH redirect (poi)'
+uci set firewall.ssh_poi.src='wan'
+uci set firewall.ssh_poi.src_dport='999'
+uci set firewall.ssh_poi.dest='lan'
+uci set firewall.ssh_poi.dest_ip='10.0.0.20'
+uci set firewall.ssh_poi.dest_port='22'
 
 uci commit firewall
 
