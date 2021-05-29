@@ -57,7 +57,12 @@ echo "Utilities installed."
 opkg install luci-ssl-nginx
 
 # Use our own certificate
-sed -i -e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.chain.pem|' -e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' /etc/nginx/nginx.conf
+sed -i\
+	-e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.chain.pem|' \
+	-e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' \
+	-e 's|listen 443 ssl default_server|listen 666 ssl default_server|'
+	-e 's|listen [::]:443 ssl default_server|listen [::]:666 ssl default_server|'
+	/etc/nginx/nginx.conf
 
 /etc/init.d/nginx restart
 

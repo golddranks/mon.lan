@@ -130,14 +130,23 @@ uci set firewall.forward_common_lan.dest_ip='10.0.0.10'
 uci set firewall.forward_common_lan.dest_port='22000'
 uci set firewall.forward_common_lan.target='ACCEPT'
 
+uci set firewall.https_mame=redirect
+uci set firewall.https_mame.target='DNAT'
+uci set firewall.https_mame.name='HTTPS redirect (mame)'
+uci set firewall.https_mame.src='wan'
+uci set firewall.https_mame.src_dport='443'
+uci set firewall.https_mame.dest='lan'
+uci set firewall.https_mame.dest_ip='10.0.0.10'
+uci set firewall.https_mame.dest_port='443'
+
 uci set firewall.http_mame=redirect
 uci set firewall.http_mame.target='DNAT'
 uci set firewall.http_mame.name='HTTP redirect (mame)'
 uci set firewall.http_mame.src='wan'
-uci set firewall.http_mame.src_dport='8080'
+uci set firewall.http_mame.src_dport='80'
 uci set firewall.http_mame.dest='lan'
 uci set firewall.http_mame.dest_ip='10.0.0.10'
-uci set firewall.http_mame.dest_port='443'
+uci set firewall.http_mame.dest_port='80'
 
 uci set firewall.syncthing=redirect
 uci set firewall.syncthing.target='DNAT'
