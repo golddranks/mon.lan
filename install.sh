@@ -17,13 +17,13 @@ ssh-keygen -R "${CURRENT_IP}"
 
 # x509 certs for the admin panel are also unwieldy to handle so let's SCP them
 ssh -o StrictHostKeyChecking=no "root@${CURRENT_IP}" "mkdir -p /etc/ssl"
-scp cert/mon.lan.key "root@${CURRENT_IP}:/etc/ssl/mon.lan.key"
-scp cert/mon.lan.chain.pem "root@${CURRENT_IP}:/etc/ssl/mon.lan.chain.pem"
+scp ../certs/cert/mon.lan.key "root@${CURRENT_IP}:/etc/ssl/mon.lan.key"
+scp ../certs/cert/mon.lan.chain.pem "root@${CURRENT_IP}:/etc/ssl/mon.lan.chain.pem"
 
 # Sending the install scripts
 scp remote1.sh "root@${CURRENT_IP}:"
 scp remote2.sh "root@${CURRENT_IP}:"
-scp ../pubkeys/authorized_keys_strict "root@${CURRENT_IP}:""
+scp ../pubkeys/authorized_keys_strict "root@${CURRENT_IP}:"
 ssh "root@${CURRENT_IP}" "./remote1.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW'"
 
 # Wait for reboot
