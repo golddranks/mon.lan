@@ -180,6 +180,3 @@ echo "Port forwarding settings done."
 
 # Remove leases that were made before the static DHCP settings
 rm -f /tmp/dhcp.leases
-
-echo "Rebooting."
-reboot now

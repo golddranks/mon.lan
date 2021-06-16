@@ -6,6 +6,7 @@ WG_PRESHARED_KEY=${3:?}
 
 . /etc/openwrt_release
 
+echo "Round 2."
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: $DISTRIB_DESCRIPTION"
 
 echo "Start installing external packages."
@@ -14,36 +15,7 @@ opkg update
 
 echo "Updated packet list."
 
-# Some packages seem to cause problems when installed together, so let's upgrade them one-by-one
-opkg upgrade dnsmasq
-sleep 5
-opkg upgrade opkg
-sleep 5
-opkg upgrade wpad-basic
-sleep 5
-
-PACKAGES=$(opkg list-upgradable | cut -f 1 -d ' ')
-
-if [ -n "$PACKAGES" ]; then
-	echo "Packages to upgrade: $(echo $PACKAGES | tr '\n' ' ')"
-	mkdir -p packages
-	cd packages
-
-	# We download the packages first because "opkg upgrade dnsmasq" seems to disable
-	# dnsmasq BEFORE downloading the upgrades, which makes the downloads fail
-	echo "$PACKAGES" | xargs opkg download
-	echo "Packages downloaded:"
-	ls -lah *.ipk
-
-	# Install the rest
-	opkg install *.ipk
-	# The luci config file conflicts with the new package
-	# Resolve conflict with an upgraded config file
-	mv /etc/config/luci-opkg /etc/config/luci || true
-	reload_config
-	cd ..
-	rm -rf packages
-fi
+opkg upgrade "$(opkg list-upgradable | cut -f 1 -d ' ')"
 
 echo "Base packages upgraded"
 
@@ -56,23 +28,21 @@ echo "Utilities installed."
 # Install nginx to support performant HTTPS admin panel
 opkg install luci-ssl-nginx
 
-# Use our own certificate
-sed -i\
-	-e 's|/etc/nginx/nginx.cer|/etc/ssl/mon.lan.chain.pem|' \
-	-e 's|/etc/nginx/nginx.key|/etc/ssl/mon.lan.key|' \
-	-e 's|listen 443 ssl default_server|listen 666 ssl default_server|'
-	-e 's|listen [::]:443 ssl default_server|listen [::]:666 ssl default_server|'
-	/etc/nginx/nginx.conf
+uci delete nginx._lan.listen || true
+uci add_list nginx._lan.listen='666 ssl default_server'
+uci add_list nginx._lan.listen='[::]:666 ssl default_server'
+uci set nginx._lan.ssl_certificate='/etc/ssl/mon.lan.chain.pem'
+uci set nginx._lan.ssl_certificate_key='/etc/ssl/mon.lan.key'
 
-/etc/init.d/nginx restart
+uci commit nginx
 
 echo "HTTPS enabled on web interface."
 
 
 # Set up WPS
 # It doesn't seem to work with two radios, so setting up only the 2.5Ghz one.
-opkg remove wpad-basic
-opkg install wpad hostapd-utils
+opkg remove wpad-basic-wolfssl
+opkg install wpad-wolfssl hostapd-utils
 
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
@@ -88,13 +58,7 @@ echo "WPS settings done."
 
 
 # Set up dynamic DNS (Gandi)
-# Gandi is not supported in 19.07, so downloading the trunk packages:
-echo "src/gz openwrt_snapshot_packages http://downloads.openwrt.org/snapshots/packages/mips_24kc/packages" >> /etc/opkg/customfeeds.conf
-echo "src/gz openwrt_snapshot_luci http://downloads.openwrt.org/snapshots/packages/mips_24kc/luci/" >> /etc/opkg/customfeeds.conf
-opkg update
 opkg install luci-app-ddns ddns-scripts-gandi
-echo "" > /etc/opkg/customfeeds.conf
-opkg update
 
 # Remove placeholder settings
 uci delete ddns.myddns_ipv4 || true
@@ -318,7 +282,3 @@ uci commit dhcp
 echo "net.ipv6.conf.all.proxy_ndp = 1" > /etc/sysctl.conf
 
 echo "Wireguard settings done."
-
-
-echo "Rebooting."
-reboot now
