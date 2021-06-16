@@ -15,7 +15,10 @@ opkg update
 
 echo "Updated packet list."
 
-opkg upgrade "$(opkg list-upgradable | cut -f 1 -d ' ')"
+PACKAGES=$(opkg list-upgradable | cut -f 1 -d ' ')
+if [ -n "$PACKAGES" ]; then
+    opkg upgrade "$PACKAGES"
+fi
 
 echo "Base packages upgraded"
 
