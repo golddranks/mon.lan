@@ -120,22 +120,25 @@ uci commit dhcp
 
 echo "DHCP static lease settings done."
 
-uci set firewall.forward_common_lan=rule
-uci set firewall.forward_common_lan.name='Forward IPv6 HTTP(S) & SSH from WAN'
-uci set firewall.forward_common_lan.family='ipv6'
-uci set firewall.forward_common_lan.src='wan'
-uci set firewall.forward_common_lan.dest='*'
-uci set firewall.forward_common_lan.dest_port='80 443 22'
-uci set firewall.forward_common_lan.target='ACCEPT'
+GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
+echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
 
-uci set firewall.forward_common_lan=rule
-uci set firewall.forward_common_lan.name='Forward IPv6 Syncthing from WAN (mame)'
-uci set firewall.forward_common_lan.family='ipv6'
-uci set firewall.forward_common_lan.src='wan'
-uci set firewall.forward_common_lan.dest='lan'
-uci set firewall.forward_common_lan.dest_ip='10.0.0.10'
-uci set firewall.forward_common_lan.dest_port='22000'
-uci set firewall.forward_common_lan.target='ACCEPT'
+uci set firewall.forward_ipv6_common=rule
+uci set firewall.forward_ipv6_common.name='Forward IPv6 HTTP(S) & SSH from WAN'
+uci set firewall.forward_ipv6_common.family='ipv6'
+uci set firewall.forward_ipv6_common.src='wan'
+uci set firewall.forward_ipv6_common.dest='*'
+uci set firewall.forward_ipv6_common.dest_port='80 443 22'
+uci set firewall.forward_ipv6_common.target='ACCEPT'
+
+uci set firewall.forward_ipv6_syncthing=rule
+uci set firewall.forward_ipv6_syncthing.name='Forward IPv6 Syncthing from WAN (mame)'
+uci set firewall.forward_ipv6_syncthing.family='ipv6'
+uci set firewall.forward_ipv6_syncthing.src='wan'
+uci set firewall.forward_ipv6_syncthing.dest='lan'
+uci set firewall.forward_ipv6_syncthing.dest_ip="${GLOBAL_IPV6_PREFIX}:10"
+uci set firewall.forward_ipv6_syncthing.dest_port='22000'
+uci set firewall.forward_ipv6_syncthing.target='ACCEPT'
 
 uci set firewall.https_mame=redirect
 uci set firewall.https_mame.target='DNAT'
