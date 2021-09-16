@@ -1,9 +1,11 @@
-#!/bin/sh -eux
+#!/bin/sh -eu
 
 CURRENT_IP=${1:-192.168.1.1}
 
-. ./secrets.sh
+[ ! -d "../certs" ] && echo "Prepare ../certs directory" && exit 1
+[ ! -d "../pubkeys" ] && echo "Prepare ../pubkeys directory" && exit 1
 
+. ./secrets.sh
 SSH_PUBKEY=$(cat $HOME/.ssh/id_rsa.pub)
 
 # Dropping the host key using SCP because the dropbear format is a binary format
@@ -22,15 +24,7 @@ scp ../certs/cert/mon.lan.key "root@${CURRENT_IP}:/etc/ssl/mon.lan.key"
 scp ../certs/cert/mon.lan.chain.pem "root@${CURRENT_IP}:/etc/ssl/mon.lan.chain.pem"
 
 # Sending the install scripts
-scp remote1.sh "root@${CURRENT_IP}:"
+scp remote.sh "root@${CURRENT_IP}:"
 scp ../pubkeys/authorized_keys_strict "root@${CURRENT_IP}:"
-ssh "root@${CURRENT_IP}" "./remote1.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW'"
+ssh "root@${CURRENT_IP}" "./remote.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW' '$GANDI_API_KEY' '$WG_KEY' '$WG_PRESHARED_KEY'"
 ssh "root@${CURRENT_IP}" "reboot now"
-# Sleep for that the dying system doesn't accidentally respond for ping and cause havoc
-sleep 5
-
-# Wait for reboot
-while ! ping -c 1 10.0.0.1 ; do sleep 2 ; done
-scp remote2.sh root@mon.lan:
-ssh root@mon.lan "./remote2.sh '$GANDI_API_KEY' '$WG_KEY' '$WG_PRESHARED_KEY'"
-ssh root@mon.lan "reboot now"
