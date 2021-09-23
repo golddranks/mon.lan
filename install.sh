@@ -27,4 +27,5 @@ scp ../certs/cert/mon.lan.chain.pem "root@${CURRENT_IP}:/etc/ssl/mon.lan.chain.p
 scp remote.sh "root@${CURRENT_IP}:"
 scp ../pubkeys/authorized_keys_strict "root@${CURRENT_IP}:"
 ssh "root@${CURRENT_IP}" "./remote.sh '$ROOT_PW' '$SSH_PUBKEY' '$PPP_ID' '$PPP_PW' '$WIFI_PW' '$GANDI_API_KEY' '$WG_KEY' '$WG_PRESHARED_KEY'"
+echo "Booting."
 ssh "root@${CURRENT_IP}" "reboot now"
