@@ -5,9 +5,9 @@ SSH_PUBKEY=${2:?}
 PPP_ID=${3:?}
 PPP_PW=${4:?}
 WIFI_PW=${5:?}
-GANDI_API_KEY=${1:?}
-WG_KEY=${2:?}
-WG_PRESHARED_KEY=${3:?}
+GANDI_API_KEY=${6:?}
+WG_KEY=${7:?}
+WG_PRESHARED_KEY=${8:?}
 
 . /etc/openwrt_release
 
