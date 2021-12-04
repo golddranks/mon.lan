@@ -378,6 +378,7 @@ function create_dmz_peer () {
 	echo "ip -6 neigh add proxy ${GLOBAL_IPV6_PREFIX}:6666:$3 dev br-lan" >> /etc/init.d/wg_proxy
 }
 
+create_lan_peer torii 'QSWgw0YVspOkueVsLNBc/UPIhZq6ZfbNw/0EMXZmMGI=' 2
 create_lan_peer bae 'is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4=' 10
 create_lan_peer opl 'DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU=' 20
 create_dmz_peer bae_dmz 'QTGbWzt70RrG+2ymLMqaPwSx4OxsL1IP3yhOTxQ8JCs=' 10
