@@ -113,13 +113,10 @@ uci set dhcp.bae.ip='10.0.0.40'
 uci set dhcp.bae.hostid='40'
 uci set dhcp.bae.dns='1'
 
-uci set dhcp.tsugi=host
-uci set dhcp.tsugi.name='tsugi'
-uci set dhcp.tsugi.mac='CC:E1:D5:6B:1D:82'
-uci set dhcp.tsugi.ip='10.0.0.2'
-uci set dhcp.tsugi.hostid='2'
-uci set dhcp.tsugi.dns='1'
 uci commit dhcp
+
+# Not a static DHCP lease, but just a static hostname
+echo "10.0.0.2	jaska" >> /etc/hosts
 
 echo "DHCP static lease settings done."
 
