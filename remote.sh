@@ -191,6 +191,7 @@ echo "Utilities installed."
 opkg install luci-ssl-nginx
 
 uci delete nginx._lan.listen || true
+uci delete nginx._lan.uci_manage_ssl || true
 uci add_list nginx._lan.listen='666 ssl default_server'
 uci add_list nginx._lan.listen='[::]:666 ssl default_server'
 uci set nginx._lan.ssl_certificate='/etc/ssl/mon.lan.chain.pem'
