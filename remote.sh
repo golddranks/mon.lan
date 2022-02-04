@@ -171,15 +171,6 @@ uci set firewall.syncthing.dest='lan'
 uci set firewall.syncthing.dest_ip='10.0.0.10'
 uci set firewall.syncthing.dest_port='22000'
 
-uci set firewall.ssh_poi=redirect
-uci set firewall.ssh_poi.target='DNAT'
-uci set firewall.ssh_poi.name='SSH redirect (poi)'
-uci set firewall.ssh_poi.src='wan'
-uci set firewall.ssh_poi.src_dport='999'
-uci set firewall.ssh_poi.dest='lan'
-uci set firewall.ssh_poi.dest_ip='10.0.0.20'
-uci set firewall.ssh_poi.dest_port='22'
-
 uci commit firewall
 
 echo "Port forwarding settings done."
@@ -380,9 +371,6 @@ function create_dmz_peer () {
 
 create_lan_peer torii 'QSWgw0YVspOkueVsLNBc/UPIhZq6ZfbNw/0EMXZmMGI=' 3
 create_lan_peer bae 'is4/cpRQYOogqZ5wwulRxwaHygDobsZT0jlCyHnF6D4=' 10
-create_lan_peer opl 'DcOeAkCLza1RmDz722u0kQfi+U64hA4UxJMQc6BAChU=' 20
-create_dmz_peer bae_dmz 'QTGbWzt70RrG+2ymLMqaPwSx4OxsL1IP3yhOTxQ8JCs=' 10
-create_dmz_peer opl_dmz 'QhsUPBja4sl8QVe66R0/LnR/WtxqfRn2oj4/NTWFjEc=' 20
 
 echo "logger -p daemon.info -t wg_proxy 'WireGuard NDP proxy succesfully set up.'" >> /etc/init.d/wg_proxy
 echo "}" >> /etc/init.d/wg_proxy
