@@ -28,6 +28,7 @@ EOF
 uci set dropbear.cfg014dd4.RootPasswordAuth='off'
 uci set dropbear.cfg014dd4.PasswordAuth='off'
 uci set dropbear.cfg014dd4.Interface='lan'
+uci set dropbear.cfg014dd4.Port='222'
 uci commit dropbear
 
 echo "Security config done."
@@ -36,14 +37,49 @@ echo "Security config done."
 # Lan
 uci set network.lan.ipaddr='10.0.0.1'
 
+
+# Vlan
+uci delete network.cfg081ec7 || true
+uci delete network.cfg091ec7 || true
+
+# LAN VLAN 1 (LAN1 + LAN2 + LAN3 + LAN4 + ETH1)
+uci set network.vlan=switch_vlan
+uci set network.vlan.device='switch0'
+uci set network.vlan.vlan='1'
+uci set network.vlan.ports='0t 2 3 4 5t'
+
+# BIGLOBE VLAN 2 (WAN + ETH0)
+uci set network.vwan_bg=switch_vlan
+uci set network.vwan_bg.device='switch0'
+uci set network.vwan_bg.vlan='2'
+uci set network.vwan_bg.ports='1 6t'
+
+# JCOM WAN VLAN 3 (LAN4 + ETH0)
+uci set network.vwan_jc=switch_vlan
+uci set network.vwan_jc.device='switch0'
+uci set network.vwan_jc.vlan='3'
+uci set network.vwan_jc.ports='5t 6t'
+
 # Internet
+
+# BIGLOBE
 uci set network.wan.proto='pppoe'
 uci set network.wan.username="$PPP_ID"
 uci set network.wan.password="$PPP_PW"
+uci set network.wan.metric='20'
+
+# JCOM
+uci set network.wan2=interface
+uci set network.wan2.proto='dhcp'
+uci set network.wan2.device='eth0.3'
+uci set network.wan2.metric='10'
+uci set firewall.cfg03dc81.network='wan wan2 wan6'
+uci commit firewall
 
 # IPv6
 uci set network.wan6.proto='dhcpv6'
 uci set network.wan6.ifaceid='::1'
+
 # MacOS NDP+RA IPv6 address selection supports only LLA source addresses, so don't use ULA:
 uci set network.globals.ula_prefix=''
 uci commit network
@@ -52,6 +88,7 @@ uci commit network
 uci set dhcp.lan.ra='relay'
 uci set dhcp.lan.dhcpv6='relay'
 uci set dhcp.lan.ndp='relay'
+
 # Add WAN6 interface, set it to relay mode and master:
 uci set dhcp.wan6=dhcp
 uci set dhcp.wan6.interface='wan6'
@@ -97,6 +134,13 @@ echo "Basic network config done."
 
 
 # Set DHCP static leases
+uci set dhcp.tsugi=host
+uci set dhcp.tsugi.name='tsugi'
+uci set dhcp.tsugi.mac='CC:E1:D5:6B:1D:82'
+uci set dhcp.tsugi.ip='10.0.0.2'
+uci set dhcp.tsugi.hostid='2'
+uci set dhcp.tsugi.dns='1'
+
 uci set dhcp.mame=host
 uci set dhcp.mame.name='mame'
 uci set dhcp.mame.mac='08:2E:5F:1B:C5:F0'
@@ -191,7 +235,7 @@ opkg update
 
 echo "Updated package list."
 
-opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full diffutils
+opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full diffutils iperf3
 
 echo "Utilities installed."
 
@@ -219,6 +263,7 @@ opkg install wpad-wolfssl hostapd-utils
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
 
+# NOTE: wlan1 is 2.5Ghz in case of Mon!
 cat << EOF > /root/wps.sh
 #!/bin/sh
 hostapd_cli -i wlan1 wps_pbc
@@ -311,6 +356,22 @@ config service 'drasa_eu_ipv6'
 	option ip_source 'network'
 	option ip_interface 'wan6'
 	option interface 'wan6'
+	option use_syslog '2'
+	option check_unit 'minutes'
+	option force_unit 'minutes'
+	option retry_unit 'seconds'
+
+config service 'drasa_eu_jcom'
+	option enabled '1'
+	option use_ipv6 '0'
+	option service_name 'gandi.net'
+	option lookup_host 'jcom.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'jcom'
+	option password '$GANDI_API_KEY'
+	option ip_source 'network'
+	option ip_network 'wan2'
+	option interface 'wan2'
 	option use_syslog '2'
 	option check_unit 'minutes'
 	option force_unit 'minutes'
