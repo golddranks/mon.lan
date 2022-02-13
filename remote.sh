@@ -116,11 +116,6 @@ uci set wireless.default_radio1.key="$WIFI_PW"
 uci set wireless.default_radio1.encryption='psk2'
 uci set wireless.radio1.disabled='0'
 uci set wireless.radio1.country='JP'
-uci set wireless.default_radio1.ieee80211r='1'
-uci set wireless.default_radio1.mobility_domain='cc66'
-uci set wireless.default_radio1.ft_over_ds='1'
-uci set wireless.default_radio1.ft_psk_generate_local='1'
-uci set wireless.radio1.cell_density='0'
 
 uci commit wireless
 
