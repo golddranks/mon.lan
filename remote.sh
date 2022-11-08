@@ -371,6 +371,22 @@ config service 'drasa_eu_jcom'
 	option check_unit 'minutes'
 	option force_unit 'minutes'
 	option retry_unit 'seconds'
+
+config service 'don_ganba_re'
+	option enabled '1'
+	option use_ipv6 '0'
+	option service_name 'gandi.net'
+	option lookup_host 'don.ganba.re'
+	option domain 'ganba.re'
+	option username 'don'
+	option password '$GANDI_API_KEY'
+	option ip_source 'network'
+	option ip_network 'wan2'
+	option interface 'wan2'
+	option use_syslog '2'
+	option check_unit 'minutes'
+	option force_unit 'minutes'
+	option retry_unit 'seconds'
 EOF
 uci commit ddns
 
