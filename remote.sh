@@ -25,10 +25,11 @@ $ROOT_PW
 $ROOT_PW
 EOF
 
-uci set dropbear.cfg014dd4.RootPasswordAuth='off'
-uci set dropbear.cfg014dd4.PasswordAuth='off'
-uci set dropbear.cfg014dd4.Interface='lan'
-uci set dropbear.cfg014dd4.Port='222'
+uci rename dropbear.cfg014dd4=lan_admin
+uci set dropbear.lan_admin.RootPasswordAuth='off'
+uci set dropbear.lan_admin.PasswordAuth='off'
+uci set dropbear.lan_admin.Interface='lan'
+uci set dropbear.lan_admin.Port='222'
 uci commit dropbear
 
 echo "Security config done."
@@ -44,18 +45,21 @@ uci delete network.cfg091ec7 || true
 
 # LAN VLAN 1 (LAN1 + LAN2 + LAN3 + LAN4 + ETH1)
 uci set network.vlan=switch_vlan
+uci set network.vlan.description='Internal VLAN (1.1)'
 uci set network.vlan.device='switch0'
 uci set network.vlan.vlan='1'
 uci set network.vlan.ports='0t 2 3 4 5t'
 
 # BIGLOBE VLAN 2 (WAN + ETH0)
 uci set network.vwan_bg=switch_vlan
+uci set network.vlan.description='BIGLOBE WAN (0.2)'
 uci set network.vwan_bg.device='switch0'
 uci set network.vwan_bg.vlan='2'
 uci set network.vwan_bg.ports='1 6t'
 
 # JCOM WAN VLAN 3 (LAN4 + ETH0)
 uci set network.vwan_jc=switch_vlan
+uci set network.vlan.description='JCOM WAN (0.3)'
 uci set network.vwan_jc.device='switch0'
 uci set network.vwan_jc.vlan='3'
 uci set network.vwan_jc.ports='5t 6t'
@@ -63,22 +67,31 @@ uci set network.vwan_jc.ports='5t 6t'
 # Internet
 
 # BIGLOBE
-uci set network.wan.proto='pppoe'
-uci set network.wan.username="$PPP_ID"
-uci set network.wan.password="$PPP_PW"
-uci set network.wan.metric='20'
+uci rename network.wan=wan_bg || true
+uci set network.wan_bg=interface
+uci set network.wan_bg.device='eth0.2'
+uci set network.wan_bg.proto='pppoe'
+uci set network.wan_bg.username="$PPP_ID"
+uci set network.wan_bg.password="$PPP_PW"
+uci set network.wan_bg.metric='20'
 
 # JCOM
-uci set network.wan2=interface
-uci set network.wan2.proto='dhcp'
-uci set network.wan2.device='eth0.3'
-uci set network.wan2.metric='10'
-uci set firewall.cfg03dc81.network='wan wan2 wan6'
-uci commit firewall
+uci set network.wan_jc=interface
+uci set network.wan_jc.device='eth0.3'
+uci set network.wan_jc.proto='dhcp'
+uci set network.wan_jc.metric='10'
 
 # IPv6
-uci set network.wan6.proto='dhcpv6'
-uci set network.wan6.ifaceid='::1'
+uci delete network.wan6 || true
+uci set network.wan_bg6=interface
+uci set network.wan_bg6.device='eth0.2'
+uci set network.wan_bg6.proto='dhcpv6'
+uci set network.wan_bg6.ifaceid='::1'
+
+# Firewall
+uci rename firewall.cfg03dc81=wan_zone || true
+uci set firewall.wan_zone.network='wan_bg wan_jc wan_bg6'
+uci commit firewall
 
 # MacOS NDP+RA IPv6 address selection supports only LLA source addresses, so don't use ULA:
 uci set network.globals.ula_prefix=''
@@ -89,14 +102,14 @@ uci set dhcp.lan.ra='relay'
 uci set dhcp.lan.dhcpv6='relay'
 uci set dhcp.lan.ndp='relay'
 
-# Add WAN6 interface, set it to relay mode and master:
-uci set dhcp.wan6=dhcp
-uci set dhcp.wan6.interface='wan6'
-uci set dhcp.wan6.ignore='1'
-uci set dhcp.wan6.master='1'
-uci set dhcp.wan6.dhcpv6='relay'
-uci set dhcp.wan6.ra='relay'
-uci set dhcp.wan6.ndp='relay'
+# Add WAN IP6 interface, set it to relay mode and master:
+uci set dhcp.wan_bg6=dhcp
+uci set dhcp.wan_bg6.interface='wan_bg6'
+uci set dhcp.wan_bg6.ignore='1'
+uci set dhcp.wan_bg6.master='1'
+uci set dhcp.wan_bg6.dhcpv6='relay'
+uci set dhcp.wan_bg6.ra='relay'
+uci set dhcp.wan_bg6.ndp='relay'
 uci commit dhcp
 
 # Wifi
@@ -349,8 +362,8 @@ config service 'drasa_eu_ipv6'
 	option username '@'
 	option password '$GANDI_API_KEY'
 	option ip_source 'network'
-	option ip_interface 'wan6'
-	option interface 'wan6'
+	option ip_interface 'wan_bg6'
+	option interface 'wan_bg6'
 	option use_syslog '2'
 	option check_unit 'minutes'
 	option force_unit 'minutes'
@@ -365,8 +378,8 @@ config service 'drasa_eu_jcom'
 	option username 'jcom'
 	option password '$GANDI_API_KEY'
 	option ip_source 'network'
-	option ip_network 'wan2'
-	option interface 'wan2'
+	option ip_network 'wan_jc'
+	option interface 'wan_jc'
 	option use_syslog '2'
 	option check_unit 'minutes'
 	option force_unit 'minutes'
@@ -500,7 +513,8 @@ uci set firewall.forward_icmp_dmz.target='ACCEPT'
 uci commit firewall
 
 # Allow Dnsmasq to respond to queries from Wireguard tunnel
-uci set dhcp.cfg01411c.localservice='0'
+uci rename dhcp.cfg01411c=dnsmasq
+uci set dhcp.dnsmasq.localservice='0'
 uci commit dhcp
 
 # Enable proxying NDP messages between external interfaces and WG interfaces
@@ -517,7 +531,7 @@ uci import mwan3 << EOF
 config globals 'globals'
 	option mmx_mask '0x3F00'
 
-config interface 'wan'
+config interface 'wan_bg'
 	option enabled '1'
 	list track_ip '8.8.4.4'
 	list track_ip '8.8.8.8'
@@ -526,7 +540,7 @@ config interface 'wan'
 	option reliability '2'
 	option family 'ipv4'
 
-config interface 'wan2'
+config interface 'wan_jc'
 	option enabled '1'
 	list track_ip '8.8.4.4'
 	list track_ip '8.8.8.8'
@@ -535,25 +549,25 @@ config interface 'wan2'
 	option reliability '2'
 	option family 'ipv4'
 
-config member 'wan_w1'
-	option interface 'wan'
+config member 'wan_bg_w1'
+	option interface 'wan_bg'
 	option metric '1'
 	option weight '1'
 
-config member 'wan2_w5'
-	option interface 'wan2'
+config member 'wan_jq_w5'
+	option interface 'wan_jc'
 	option metric '1'
 	option weight '5'
 
-config policy 'wan_only'
-	list use_member 'wan_w1'
+config policy 'wan_jc_only'
+	list use_member 'wan_bg_w1'
 
-config policy 'wan2_only'
-	list use_member 'wan2_w5'
+config policy 'wan_bg_only'
+	list use_member 'wan_jq_w5'
 
 config policy 'balanced'
-	list use_member 'wan_w1'
-	list use_member 'wan2_w5'
+	list use_member 'wan_bg_w1'
+	list use_member 'wan_jq_w5'
 
 config rule 'https'
 	option sticky '1'
@@ -562,15 +576,15 @@ config rule 'https'
 	option use_policy 'balanced'
 	option family 'ipv4'
 
-config rule 'wan_dns'
+config rule 'wan_bg_dns'
 	option dest_ip '210.147.235.3,133.205.66.51'
 	option family 'ipv4'
-	option use_policy 'wan_only'
+	option use_policy 'wan_bg_only'
 
-config rule 'wan2_dns'
+config rule 'wan_jc_dns'
 	option dest_ip '203.165.31.152,122.197.254.136'
 	option family 'ipv4'
-	option use_policy 'wan2_only'
+	option use_policy 'wan_jc_only'
 
 config rule 'default_rule'
 	option dest_ip '0.0.0.0/0'
