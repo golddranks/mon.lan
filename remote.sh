@@ -11,6 +11,16 @@ WG_PRESHARED_KEY=${8:?}
 
 . /etc/openwrt_release
 
+# Idempotent UCI functions
+
+function delete_uci_key () {
+	uci -q delete "$1" && echo "Deleted $1" || echo "$1 is already deleted; that's OK."
+}
+
+function rename_uci_key () {
+	uci -q show "${1}.${3}" > /dev/null && echo "${1}.${3} already exists/is renamed; that's OK." || { uci -q rename "${1}.${2}=${3}" && echo "Renamed ${1}.${2}=${3}"; }
+}
+
 echo "Setting up config on TP-Link Archer C7 v2.0/JP. OS: $DISTRIB_DESCRIPTION"
 
 # Add the host pubkey of the installer host
@@ -25,7 +35,7 @@ $ROOT_PW
 $ROOT_PW
 EOF
 
-uci rename dropbear.cfg014dd4=lan_admin
+rename_uci_key dropbear cfg014dd4 lan_admin
 uci set dropbear.lan_admin.RootPasswordAuth='off'
 uci set dropbear.lan_admin.PasswordAuth='off'
 uci set dropbear.lan_admin.Interface='lan'
@@ -40,8 +50,8 @@ uci set network.lan.ipaddr='10.0.0.1'
 
 
 # Vlan
-uci delete network.cfg081ec7 || true
-uci delete network.cfg091ec7 || true
+delete_uci_key network.cfg081ec7
+delete_uci_key network.cfg091ec7
 
 # LAN VLAN 1 (LAN1 + LAN2 + LAN3 + LAN4 + ETH1)
 uci set network.vlan=switch_vlan
@@ -67,7 +77,7 @@ uci set network.vwan_jc.ports='5t 6t'
 # Internet
 
 # BIGLOBE
-uci rename network.wan=wan_bg || true
+rename_uci_key network wan wan_bg
 uci set network.wan_bg=interface
 uci set network.wan_bg.device='eth0.2'
 uci set network.wan_bg.proto='pppoe'
@@ -82,14 +92,14 @@ uci set network.wan_jc.proto='dhcp'
 uci set network.wan_jc.metric='10'
 
 # IPv6
-uci delete network.wan6 || true
+delete_uci_key network.wan6
 uci set network.wan_bg6=interface
 uci set network.wan_bg6.device='eth0.2'
 uci set network.wan_bg6.proto='dhcpv6'
 uci set network.wan_bg6.ifaceid='::1'
 
 # Firewall
-uci rename firewall.cfg03dc81=wan_zone || true
+rename_uci_key firewall cfg03dc81 wan_zone
 uci set firewall.wan_zone.network='wan_bg wan_jc wan_bg6'
 uci commit firewall
 
@@ -180,7 +190,7 @@ uci set dhcp.bae.dns='1'
 uci commit dhcp
 
 # Not a static DHCP lease, but just a static hostname
-echo "10.0.0.2	jaska" >> /etc/hosts
+grep jaska /etc/hosts || echo "10.0.0.2	jaska" >> /etc/hosts
 
 echo "DHCP static lease settings done."
 
@@ -251,8 +261,8 @@ echo "Utilities installed."
 # Install nginx to support performant HTTPS admin panel
 opkg install luci-ssl-nginx
 
-uci delete nginx._lan.listen || true
-uci delete nginx._lan.uci_manage_ssl || true
+delete_uci_key nginx._lan.listen
+delete_uci_key nginx._lan.uci_manage_ssl
 uci add_list nginx._lan.listen='666 ssl default_server'
 uci add_list nginx._lan.listen='[::]:666 ssl default_server'
 uci set nginx._lan.ssl_certificate='/etc/ssl/mon.lan.chain.pem'
@@ -286,8 +296,8 @@ echo "WPS settings done."
 opkg install luci-app-ddns ddns-scripts-gandi
 
 # Remove placeholder settings
-uci delete ddns.myddns_ipv4 || true
-uci delete ddns.myddns_ipv6 || true
+delete_uci_key ddns.myddns_ipv4
+delete_uci_key ddns.myddns_ipv6
 uci -m import ddns << EOF
 config service 'drasa_eu_ipv4'
 	option enabled '1'
@@ -513,7 +523,7 @@ uci set firewall.forward_icmp_dmz.target='ACCEPT'
 uci commit firewall
 
 # Allow Dnsmasq to respond to queries from Wireguard tunnel
-uci rename dhcp.cfg01411c=dnsmasq
+rename_uci_key dhcp cfg01411c dnsmasq
 uci set dhcp.dnsmasq.localservice='0'
 uci commit dhcp
 
