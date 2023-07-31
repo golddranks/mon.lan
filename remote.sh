@@ -189,14 +189,17 @@ uci set dhcp.bae.dns='1'
 
 uci commit dhcp
 
-# Not a static DHCP lease, but just a static hostname
-grep jaska /etc/hosts || echo "10.0.0.2	jaska" >> /etc/hosts
-
-echo "DHCP static lease settings done."
-
 
 GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
 echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
+
+grep mon /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}::1	mon" >> /etc/hosts
+# Not a static DHCP lease, but just a static hostname
+grep jaska /etc/hosts || echo "10.0.0.2	jaska\n${GLOBAL_IPV6_PREFIX}::2	jaska" >> /etc/hosts
+grep mame /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}::10	mame" >> /etc/hosts
+grep poi /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}::20	poi" >> /etc/hosts
+
+echo "DHCP static lease settings done."
 
 uci set firewall.forward_ipv6_common=rule
 uci set firewall.forward_ipv6_common.name='Forward IPv6 HTTP(S) & SSH from WAN'
