@@ -193,11 +193,11 @@ uci commit dhcp
 GLOBAL_IPV6_PREFIX=$(ip -6 a show dev eth0.2 scope global | grep -o -E ' \w+:\w+:\w+:\w+:')
 echo "Global IPv6 prefix: ${GLOBAL_IPV6_PREFIX}"
 
-grep mon /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}::1	mon" >> /etc/hosts
+grep mon /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}:1	mon" >> /etc/hosts
 # Not a static DHCP lease, but just a static hostname
-grep jaska /etc/hosts || echo "10.0.0.2	jaska\n${GLOBAL_IPV6_PREFIX}::2	jaska" >> /etc/hosts
-grep mame /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}::10	mame" >> /etc/hosts
-grep poi /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}::20	poi" >> /etc/hosts
+grep jaska /etc/hosts || echo "10.0.0.2	jaska\n${GLOBAL_IPV6_PREFIX}:2	jaska" >> /etc/hosts
+grep mame /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}:10	mame" >> /etc/hosts
+grep poi /etc/hosts || echo "${GLOBAL_IPV6_PREFIX}:20	poi" >> /etc/hosts
 
 echo "DHCP static lease settings done."
 
@@ -270,6 +270,9 @@ uci add_list nginx._lan.listen='666 ssl default_server'
 uci add_list nginx._lan.listen='[::]:666 ssl default_server'
 uci set nginx._lan.ssl_certificate='/etc/ssl/mon.lan.chain.pem'
 uci set nginx._lan.ssl_certificate_key='/etc/ssl/mon.lan.key'
+mv -n /etc/nginx/restrict_locally /etc/nginx/restrict_locally.original
+echo "	allow ${GLOBAL_IPV6_PREFIX}:/64;" > /etc/nginx/restrict_locally
+cat /etc/nginx/restrict_locally.original >> /etc/nginx/restrict_locally
 
 uci commit nginx
 
