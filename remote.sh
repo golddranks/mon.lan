@@ -247,7 +247,7 @@ update_opkg
 
 echo "Updated package list."
 
-opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full diffutils iperf3 netcat
+opkg install curl nano coreutils-base64 wget bind-dig tcpdump ip-full diffutils iperf3 ncat
 
 echo "Utilities installed."
 
@@ -272,8 +272,8 @@ echo "HTTPS enabled on web interface."
 
 # Set up WPS
 # It doesn't seem to work with two radios, so setting up only the 2.5Ghz one.
-opkg remove wpad-basic-wolfssl
-opkg install wpad-wolfssl hostapd-utils
+opkg remove wpad-basic-mbedtls
+opkg install wpad-mbedtls hostapd-utils
 
 uci set wireless.default_radio1.wps_pushbutton='1'
 uci commit wireless
