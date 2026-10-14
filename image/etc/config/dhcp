@@ -1,6 +1,10 @@
 # LAN is IPv6-only. `dhcpv4 'disabled'` stops dnsmasq handing out IPv4 leases;
 # this affects dnsmasq only. odhcpd still serves the IPv6 side (RA/SLAAC +
 # DHCPv6) as configured below - odhcpd-ipv6only never serves DHCPv4.
+#
+# DNS: dnsmasq remains the LAN resolver (it owns the `lan` domain) but no longer
+# uses the ISP resolvers - it forwards everything to unbound on loopback, which
+# synthesises AAAA records for IPv4-only names (DNS64). See /etc/config/unbound.
 
 config dnsmasq
 	option domainneeded '1'
@@ -17,7 +21,8 @@ config dnsmasq
 	option authoritative '1'
 	option readethers '1'
 	option leasefile '/tmp/dhcp.leases'
-	option resolvfile '/tmp/resolv.conf.d/resolv.conf.auto'
+	option noresolv '1'
+	list server '127.0.0.1#1053'
 	option nonwildcard '1'
 	option localservice '1'
 	option ednspacket_max '1232'
@@ -32,8 +37,10 @@ config dhcp 'lan'
 	option ra_slaac '1'
 	list ra_flags 'managed-config'
 	list ra_flags 'other-config'
-	# Enable together with NAT64 in P3 so iOS/Android/macOS can self-CLAT:
-	# option ra_pref64 '64:ff9b::/96'
+	# Advertise the NAT64 prefix (RFC 8781) so a host that needs real IPv4 -
+	# an app using an IPv4 literal or its own resolver - can build a CLAT and
+	# translate for itself (464XLAT):
+	option ra_pref64 '64:ff9b::/96'
 
 config dhcp 'wan'
 	option interface 'wan'

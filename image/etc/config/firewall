@@ -1,6 +1,9 @@
 # Firewall for an IPv6-only LAN with a dual-stack (DHCPv4 + DHCPv6-PD) WAN.
 # Zones reference interfaces by name, so the stock layout applies as-is.
-# The NAT64 translation zone (`xlat`) and its forwardings are added in P3.
+#
+# NAT64 needs no rules here: Jool translates in the PREROUTING hook, so the
+# resulting IPv4 packets are matched by the ordinary `lan` -> `wan` forwarding
+# and masqueraded by the `wan` zone like any other forwarded traffic.
 
 config defaults
 	option syn_flood '1'

@@ -16,8 +16,11 @@ baked into the image itself via the ImageBuilder's `FILES` overlay.
 - **LAN** is **IPv6-only**: no IPv4 address and no DHCPv4. Hosts get addresses
   over SLAAC and DHCPv6 (`odhcpd`), using GUA addresses from the delegated /56
   plus a fixed ULA (`fd42:6d6f:6e00::/48`) for stable internal addresses.
-- IPv4-only destinations are intended to be reached through a NAT64 + DNS64
-  translation layer (see _Not yet implemented_).
+- IPv4-only destinations are reached via **NAT64 + DNS64**: unbound (behind
+  dnsmasq) synthesises AAAA records in the well-known `64:ff9b::/96` prefix, and
+  Jool translates that traffic out to the WAN's IPv4 address. The prefix is also
+  advertised on the LAN (`ra_pref64`) so dual-stack-aware clients can build a
+  CLAT for apps that never received a synthesised AAAA (464XLAT).
 
 ## Repository layout
 
@@ -29,7 +32,8 @@ build/
   nix-run.sh          entry point: nix shell .#lima --command ./lima-run.sh
   lima-run.sh         start the VM and run build.sh inside it
 image/                rootfs overlay, rendered then merged into the image (/etc/...)
-  etc/config/         UCI: network, system, dhcp, firewall, dropbear
+  etc/config/         UCI: network, system, dhcp, firewall, dropbear, jool, unbound
+  etc/jool/           Jool NAT64 instance definition (created at boot)
   etc/uci-defaults/   first-boot-only scripts (self-deleting)
 secrets.sed.example   sed substitutions for the overlay's @NAME@ tokens
 ```
@@ -73,8 +77,6 @@ The image contains the baked credentials, so treat the output `.bin` as a secret
 
 ## Not yet implemented
 
-- IPv4 egress via NAT64 (Jool in a netns) + DNS64 (unbound), with `ra_pref64`
-  advertised on the LAN.
 - Wireless: SSID, country, and 802.11r (radios are currently left to
   `wifi config`).
 - DDNS: per-service AAAA records for LAN hosts, updated when the delegated /56

@@ -1,0 +1,16 @@
+# NAT64 instance, created at boot by the packaged /etc/init.d/jool from
+# /etc/jool/jool-nat64.conf.json.
+#
+# That JSON sets only pool6 (64:ff9b::/96) and deliberately leaves pool4 empty.
+# With an empty pool4 Jool uses the node's global IPv4 addresses - i.e. the WAN
+# address - as its translation source, and follows it across DHCP changes with
+# no runtime scripting.
+
+config jool 'general'
+	option enabled '1'
+
+config jool 'nat64'
+	option enabled '1'
+
+config jool 'siit'
+	option enabled '0'

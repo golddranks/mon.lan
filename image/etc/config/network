@@ -8,7 +8,8 @@
 #   * no IPv4 address on `lan`, and no DHCPv4 (see /etc/config/dhcp)
 #   * GUA addressing comes from the DHCPv6-PD /56 delegated by J:COM on WAN
 #   * a ULA gives stable internal addressing independent of the delegated prefix
-# IPv4 reachability from LAN hosts is provided by NAT64 + DNS64 (added in P3).
+# IPv4 reachability from LAN hosts comes from NAT64 + DNS64; see
+# /etc/config/jool (translation) and /etc/config/unbound (synthesis).
 
 config interface 'loopback'
 	option device 'lo'

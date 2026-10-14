@@ -1,0 +1,46 @@
+# DNS64 resolver. dnsmasq stays the LAN resolver (and keeps the `lan` domain),
+# but forwards everything here; unbound recurses and answers AAAA-less names by
+# synthesising them inside the NAT64 prefix. `dns64_prefix` must match Jool's
+# `pool6` (/etc/jool/jool-nat64.conf.json) and the LAN's advertised `ra_pref64`
+# (/etc/config/dhcp).
+#
+# listen_port is moved off 53 so dnsmasq can keep it; this is the "serial
+# dnsmasq" arrangement from the package's own README.
+
+config unbound 'ub_main'
+	option add_extra_dns '0'
+	option add_local_fqdn '1'
+	option add_wan_fqdn '0'
+	option dhcp_link 'none'
+	option dhcp4_slaac6 '0'
+	option exclude_ipv6_ga '0'
+	option dns64 '1'
+	option dns64_prefix '64:ff9b::/96'
+	option domain 'lan'
+	option domain_type 'static'
+	option edns_size '1232'
+	option extended_stats '0'
+	option hide_binddata '1'
+	option interface_auto '1'
+	option listen_port '1053'
+	option localservice '1'
+	option manual_conf '0'
+	option num_threads '1'
+	option protocol 'default'
+	option query_minimize '0'
+	option query_min_strict '0'
+	option rate_limit '0'
+	option rebind_localhost '0'
+	option rebind_protection '1'
+	option recursion 'default'
+	option resource 'default'
+	option root_age '9'
+	option ttl_min '120'
+	option ttl_neg_max '1000'
+	option unbound_control '0'
+	option validator '0'
+	option validator_ntp '1'
+	option verbosity '1'
+	list iface_trig 'lan'
+	list iface_trig 'wan'
+	list iface_wan 'wan'

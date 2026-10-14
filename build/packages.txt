@@ -12,7 +12,7 @@ luci-ssl
 wpad-mbedtls
 hostapd-utils
 
-# --- Diagnostics / convenience (handy for the NAT64 work in P3) ---
+# --- Diagnostics / convenience ---
 curl
 nano
 bind-dig
@@ -20,7 +20,10 @@ tcpdump
 ip-full
 iperf3
 
-# --- IPv6-only + NAT64 (enable in P3) ---
-# kmod-jool-netfilter
-# jool-tools-netfilter
-# unbound
+# --- IPv6-only LAN: NAT64 (Jool) + DNS64 (unbound) ---
+# The kmod package autoloads the Jool kernel modules; jool-tools ships the
+# control tool, init, and /etc/config/jool. unbound is the DNS64 resolver
+# behind dnsmasq (dnsmasq itself cannot synthesise AAAA records).
+kmod-jool-netfilter
+jool-tools-netfilter
+unbound-daemon
