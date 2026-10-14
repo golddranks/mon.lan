@@ -1,2 +1,5 @@
-secrets.sh
+secrets.sed
 *.key
+
+# build artifacts
+build/.work/

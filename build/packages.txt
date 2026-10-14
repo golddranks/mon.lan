@@ -1,0 +1,26 @@
+# Extra packages baked into the image.
+#
+# Target/profile default packages are included automatically; prefix an entry
+# with '-' to drop a default. Audit the result in the generated *.manifest.
+
+# --- Web UI (not part of the default package set; a bare image is CLI-only) ---
+luci
+luci-ssl
+
+# --- WiFi: full hostapd (802.11r/AP/WPS) instead of the basic default ---
+-wpad-basic-mbedtls
+wpad-mbedtls
+hostapd-utils
+
+# --- Diagnostics / convenience (handy for the NAT64 work in P3) ---
+curl
+nano
+bind-dig
+tcpdump
+ip-full
+iperf3
+
+# --- IPv6-only + NAT64 (enable in P3) ---
+# kmod-jool-netfilter
+# jool-tools-netfilter
+# unbound

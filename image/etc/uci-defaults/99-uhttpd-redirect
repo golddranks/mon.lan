@@ -1,0 +1,6 @@
+#!/bin/sh
+# Serve LuCI over HTTPS only: the port-80 listener redirects to HTTPS.
+# uhttpd's built-in redirect is a 307 ("Temporary Redirect"), not a 301.
+uci -q set uhttpd.main.redirect_https='1'
+uci -q commit uhttpd
+exit 0
