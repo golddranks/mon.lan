@@ -36,6 +36,8 @@ ddns-scripts-gandi
 # nginx-mod-luci's uci-defaults disables uhttpd on first boot.
 nginx-ssl
 nginx-mod-luci
+# SNI-routed TCP proxy for the IPv4 side (see /etc/nginx/stream.d).
+nginx-mod-stream
 
 # --- Let's Encrypt, DNS-01 via the Gandi API (see /etc/config/acme) ---
 acme-common

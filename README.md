@@ -21,6 +21,14 @@ baked into the image itself via the ImageBuilder's `FILES` overlay.
   Jool translates that traffic out to the WAN's IPv4 address. The prefix is also
   advertised on the LAN (`ra_pref64`) so dual-stack-aware clients can build a
   CLAT for apps that never received a synthesised AAAA (464XLAT).
+- `bitwarden`, `syncthing` and `webshare` (all on mame) are published in
+  Gandi LiveDNS (`/etc/config/ddns`): A records for the WAN IPv4, AAAA records
+  for mame's GUA. mame pins its SLAAC suffix (`slaac token ::10`), so the AAAA
+  is the delegated /64 plus `::10` (`/usr/lib/ddns/lan_suffix.sh`). The apex and
+  `jcom.drasa.eu` are not published.
+- Inbound, IPv6 TCP 22/80/443 is forwarded to every LAN host unchanged (no
+  NAT66); the router's own input stays closed. IPv4 TCP 80/443 terminates on
+  the router, where nginx proxies to mame (see below).
 
 ## Wireless
 
@@ -37,9 +45,15 @@ baked into the image itself via the ImageBuilder's `FILES` overlay.
   default_server with a self-signed certificate (reach it by IP), and
   `mon.drasa.eu` carries a **Let's Encrypt** certificate.
 - The certificate is issued over **DNS-01** - a `_acme-challenge` TXT record
-  written through the Gandi API - so nothing is exposed to the WAN
-  (`/etc/config/acme`). `/etc/config/dhcp` resolves `mon.drasa.eu` to the
-  router, so the panel works on the LAN without publishing the name.
+  written through the Gandi API - so issuance needs no inbound HTTP
+  (`/etc/config/acme`). `/etc/config/dhcp` still resolves `mon.drasa.eu` to the
+  ULA on the LAN, so the name keeps working when the WAN is down.
+- The HTTP server listens on **IPv6 only**; the LAN is IPv6-only and IPv4
+  `:80`/`:443` belong to nginx's `stream` proxy (`/etc/nginx/stream.d`). HTTPS
+  is routed by SNI to mame's ULA (`fd42:6d6f:6e00::10`), so the TLS connection
+  passes through and mame keeps its own certificates; plain HTTP has a single
+  backend. A name on another host is one more `map` entry for 443 (per-host
+  routing for port 80 would need an L7 proxy).
 - A self-signed placeholder is generated on first boot so nginx always starts;
   `/etc/hotplug.d/acme/90-nginx-cert` swaps in the real certificate and reloads
   nginx whenever it is issued or renewed. The first issuance is triggered when
@@ -59,7 +73,9 @@ image/                rootfs overlay, rendered then merged into the image (/etc/
   etc/config/         UCI: network, system, dhcp, firewall, dropbear, wireless, jool, unbound, ddns, nginx, acme
   etc/jool/           Jool NAT64 instance definition (created at boot)
   etc/hotplug.d/      certificate handoff (acme) and first-issuance trigger (iface)
+  etc/nginx/          uci.conf.template override + IPv4 stream proxy (stream.d)
   etc/uci-defaults/   first-boot-only scripts (self-deleting)
+  usr/lib/ddns/       Gandi LiveDNS provider override + fixed-suffix helper
 secrets.sed.example   sed substitutions for the overlay's @NAME@ tokens
 ```
 
@@ -102,10 +118,9 @@ The image contains the baked credentials, so treat the output `.bin` as a secret
 
 ## Not yet implemented
 
-- DDNS: the Gandi provider plumbing is in place (`/etc/config/ddns`, API key
-  from `secrets.sed`), but no record is enabled yet. Publishing a LAN host's
-  AAAA is only useful together with a firewall opening for that host, so the
-  per-host policy has to be decided first.
+- IPv4-only devices (the Nintendo Switch, the air conditioner, the doorbell)
+  have no segment yet. The plan is a second SSID on a `br-iot` bridge with
+  NAT, so those clients never see the IPv6-only LAN.
 
 ## Notes
 

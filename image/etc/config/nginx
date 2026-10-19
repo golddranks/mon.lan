@@ -2,6 +2,9 @@
 # uhttpd on first boot and serves LuCI through uwsgi; nginx-util turns this UCI
 # into the running configuration on every (re)start.
 #
+# The HTTP server listens on IPv6 only: the LAN is IPv6-only, and IPv4 :80/:443
+# are owned by the stream proxy in /etc/nginx/stream.d (mame's names).
+#
 # Two HTTPS server parts:
 #   _lan          - default_server, LAN-only, self-signed (works by IP)
 #   mon_drasa_eu  - the public name, Let's Encrypt certificate (see
@@ -13,7 +16,6 @@ config main global
 	option uci_enable 'true'
 
 config server '_lan'
-	list listen '443 ssl default_server'
 	list listen '[::]:443 ssl default_server'
 	option server_name '_lan'
 	list include 'restrict_locally'
@@ -26,13 +28,11 @@ config server '_lan'
 	option access_log 'off; # logd openwrt'
 
 config server '_redirect2ssl'
-	list listen '80'
 	list listen '[::]:80'
 	option server_name '_redirect2ssl'
 	option return '301 https://$host$request_uri'
 
 config server 'mon_drasa_eu'
-	list listen '443 ssl'
 	list listen '[::]:443 ssl'
 	option server_name 'mon.drasa.eu'
 	list include 'restrict_locally'

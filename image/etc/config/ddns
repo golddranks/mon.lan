@@ -1,36 +1,97 @@
-# Dynamic DNS (Gandi LiveDNS).
+# Dynamic DNS (Gandi LiveDNS) for the names served by mame.
 #
-# The old setup published drasa.eu (apex) and a few subdomains through Gandi.
-# The API key is a secret: it is injected at build time from secrets.sed and is
-# passed to ddns-scripts as `option password`.
+# Each name gets an A record for the WAN IPv4 (inbound IPv4 terminates on the
+# router's nginx stream proxy) and an AAAA for mame's GUA. mame pins its suffix
+# with `slaac token ::10` (see its NixOS config), so the AAAA is the current
+# LAN /64 plus `::10`; /usr/lib/ddns/lan_suffix.sh prints it.
 #
-# No service is enabled yet, deliberately: publishing a LAN host's AAAA is only
-# useful together with a firewall opening for that host, and the `wan` zone
-# forwards with REJECT - so the per-host policy has to be chosen first. Add one
-# `config service` per record and set `enabled '1'`.
+# `ip_source network` follows DHCP/PD changes; the AAAA script follows the
+# delegated prefix. The provider script in /usr/lib/ddns is overridden by the
+# image because the packaged ddns-scripts sends Gandi's retired `Apikey`
+# header, which the API rejects for personal access tokens.
 #
-# For a LAN host, ddns-scripts must be told which address to publish:
-# `option ip_source 'script'` runs `option ip_script` and uses its stdout, so a
-# small helper printing the host's current global address does the job.
+# ddns-scripts cannot create a missing record: a failed lookup aborts the update
+# and retries forever. Each name must already have an A and an AAAA rrset in the
+# zone; this config only updates them. If a record is deleted, create it once
+# (and expect the zone's negative TTL to delay recovery in the local caches).
 
 config ddns 'global'
 	option ddns_dateformat '%F %R'
 	option ddns_loglines '250'
 	option upd_privateip '0'
 
-# Example - the router itself (equivalent to the old drasa_eu_ipv6 entry).
-config service 'drasa_eu_ipv6'
-	option enabled '0'
+# --- A records (WAN IPv4) ---
+
+config service 'bitwarden_a'
+	option enabled '1'
 	option service_name 'gandi.net'
-	option lookup_host 'drasa.eu'
+	option lookup_host 'bitwarden.drasa.eu'
 	option domain 'drasa.eu'
-	option username '@'
+	option username 'bitwarden'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '0'
+	option ip_source 'network'
+	option ip_network 'wan'
+	option use_syslog '2'
+
+config service 'syncthing_a'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'syncthing.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'syncthing'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '0'
+	option ip_source 'network'
+	option ip_network 'wan'
+	option use_syslog '2'
+
+config service 'webshare_a'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'webshare.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'webshare'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '0'
+	option ip_source 'network'
+	option ip_network 'wan'
+	option use_syslog '2'
+
+# --- AAAA records (mame's GUA, suffix ::10) ---
+
+config service 'bitwarden_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'bitwarden.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'bitwarden'
 	option password '@GANDI_API_KEY@'
 	option use_ipv6 '1'
-	option ip_source 'network'
-	option ip_network 'wan6'
-	option interface 'wan6'
+	option ip_source 'script'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh 10'
 	option use_syslog '2'
-	option check_unit 'minutes'
-	option force_unit 'minutes'
-	option retry_unit 'seconds'
+
+config service 'syncthing_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'syncthing.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'syncthing'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'script'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh 10'
+	option use_syslog '2'
+
+config service 'webshare_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'webshare.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'webshare'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'script'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh 10'
+	option use_syslog '2'
