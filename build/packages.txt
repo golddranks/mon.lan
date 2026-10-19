@@ -27,3 +27,17 @@ iperf3
 kmod-jool-netfilter
 jool-tools-netfilter
 unbound-daemon
+
+# --- Dynamic DNS (Gandi LiveDNS; config in /etc/config/ddns) ---
+ddns-scripts
+ddns-scripts-gandi
+
+# --- TLS front-end: nginx serves LuCI via uwsgi (see /etc/config/nginx) ---
+# nginx-mod-luci's uci-defaults disables uhttpd on first boot.
+nginx-ssl
+nginx-mod-luci
+
+# --- Let's Encrypt, DNS-01 via the Gandi API (see /etc/config/acme) ---
+acme-common
+acme-acmesh
+acme-acmesh-dnsapi

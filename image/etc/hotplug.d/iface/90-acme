@@ -1,0 +1,11 @@
+#!/bin/sh
+# acme-common only schedules a nightly renewal; nothing issues the first
+# certificate on a fresh image. Kick that off when the WAN comes up. acme.sh
+# skips the run while the certificate is still valid, so this is cheap on every
+# boot. The sleep lets dnsmasq pick up the upstream resolvers first.
+
+[ "$ACTION" = ifup ] || exit 0
+[ "$INTERFACE" = wan ] || exit 0
+
+( sleep 5; /etc/init.d/acme renew ) >/dev/null 2>&1 &
+exit 0

@@ -28,6 +28,11 @@ config dnsmasq
 	option ednspacket_max '1232'
 	option filter_aaaa '0'
 	option filter_a '0'
+	# mon.drasa.eu (the name on the TLS certificate) resolves to the router
+	# itself. address_as_local makes it authoritative, so IPv4 lookups get an
+	# empty answer rather than being forwarded upstream.
+	option address_as_local '1'
+	list address '/mon.drasa.eu/fd42:6d6f:6e00::1'
 
 config dhcp 'lan'
 	option interface 'lan'
@@ -35,6 +40,11 @@ config dhcp 'lan'
 	option ra 'server'
 	option dhcpv6 'server'
 	option ra_slaac '1'
+	# Deliberately no ra_default: advertising a default route while there is no
+	# upstream makes a client that is also attached to another network prefer
+	# this router and lose connectivity. The cost is that, until the WAN is up,
+	# odhcpd advertises router lifetime 0, so Apple clients (which ignore the
+	# RA's RDNSS) get no DNS and reach the panel by IP rather than by name.
 	list ra_flags 'managed-config'
 	list ra_flags 'other-config'
 	# Advertise the NAT64 prefix (RFC 8781) so a host that needs real IPv4 -

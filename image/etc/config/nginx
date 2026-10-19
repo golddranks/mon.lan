@@ -1,0 +1,44 @@
+# nginx is the TLS front-end for LuCI. nginx-mod-luci's uci-defaults disables
+# uhttpd on first boot and serves LuCI through uwsgi; nginx-util turns this UCI
+# into the running configuration on every (re)start.
+#
+# Two HTTPS server parts:
+#   _lan          - default_server, LAN-only, self-signed (works by IP)
+#   mon_drasa_eu  - the public name, Let's Encrypt certificate (see
+#                   /etc/config/acme). A placeholder self-signed cert is
+#                   generated at that path on first boot so nginx always starts.
+# plus _redirect2ssl, which sends http:// to https://.
+
+config main global
+	option uci_enable 'true'
+
+config server '_lan'
+	list listen '443 ssl default_server'
+	list listen '[::]:443 ssl default_server'
+	option server_name '_lan'
+	list include 'restrict_locally'
+	list include 'conf.d/*.locations'
+	option uci_manage_ssl 'self-signed'
+	option ssl_certificate '/etc/nginx/conf.d/_lan.crt'
+	option ssl_certificate_key '/etc/nginx/conf.d/_lan.key'
+	option ssl_session_cache 'shared:SSL:32k'
+	option ssl_session_timeout '64m'
+	option access_log 'off; # logd openwrt'
+
+config server '_redirect2ssl'
+	list listen '80'
+	list listen '[::]:80'
+	option server_name '_redirect2ssl'
+	option return '301 https://$host$request_uri'
+
+config server 'mon_drasa_eu'
+	list listen '443 ssl'
+	list listen '[::]:443 ssl'
+	option server_name 'mon.drasa.eu'
+	list include 'restrict_locally'
+	list include 'conf.d/*.locations'
+	option ssl_certificate '/etc/ssl/nginx/mon.drasa.eu.crt'
+	option ssl_certificate_key '/etc/ssl/nginx/mon.drasa.eu.key'
+	option ssl_session_cache 'shared:SSL:32k'
+	option ssl_session_timeout '64m'
+	option access_log 'off; # logd openwrt'

@@ -1,0 +1,20 @@
+#!/bin/sh
+# acme-common fires this (ACTION=issued | renewed) whenever a certificate
+# changes. Put the Let's Encrypt certificate where nginx expects it and reload.
+
+[ "$ACTION" = issued ] || [ "$ACTION" = renewed ] || exit 0
+
+src=/etc/ssl/acme
+dst=/etc/ssl/nginx
+
+[ -s "$src/mon.drasa.eu.fullchain.crt" ] || exit 0
+[ -s "$src/mon.drasa.eu.key" ] || exit 0
+
+mkdir -p "$dst"
+cp "$src/mon.drasa.eu.fullchain.crt" "$dst/mon.drasa.eu.crt"
+cp "$src/mon.drasa.eu.key" "$dst/mon.drasa.eu.key"
+chmod 600 "$dst/mon.drasa.eu.key"
+
+/etc/init.d/nginx reload
+
+exit 0

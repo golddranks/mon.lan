@@ -1,0 +1,41 @@
+# Wireless for the MT6000. Radio layout auto-detected from board.json:
+#   radio0 = 2.4 GHz (platform/soc/18000000.wifi)
+#   radio1 = 5 GHz   (platform/soc/18000000.wifi+1)
+# (The old Archer C7 had these the other way round.)
+#
+# One SSID on both bands, so clients choose the band and move between them on
+# their own. No 802.11r: it only matters with more than one AP.
+# The PSK is baked from secrets.sed (@WIFI_PW@).
+
+config wifi-device 'radio0'
+	option type 'mac80211'
+	option path 'platform/soc/18000000.wifi'
+	option band '2g'
+	option channel '1'
+	option htmode 'HE20'
+	option country 'JP'
+
+config wifi-iface 'default_radio0'
+	option device 'radio0'
+	option network 'lan'
+	option mode 'ap'
+	option ssid 'Skeletor'
+	option encryption 'psk2'
+	option key '@WIFI_PW@'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option path 'platform/soc/18000000.wifi+1'
+	option band '5g'
+	option channel '36'
+	option htmode 'HE80'
+	option country 'JP'
+	option cell_density '0'
+
+config wifi-iface 'default_radio1'
+	option device 'radio1'
+	option network 'lan'
+	option mode 'ap'
+	option ssid 'Skeletor'
+	option encryption 'psk2'
+	option key '@WIFI_PW@'

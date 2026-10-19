@@ -1,0 +1,24 @@
+# Let's Encrypt certificate for mon.drasa.eu, issued over DNS-01 (a TXT record
+# via the Gandi API) - no inbound HTTP, nothing exposed to the WAN.
+#
+# The Let's Encrypt account email and the Gandi token both come from
+# secrets.sed. acme.sh writes the certificate under /etc/acme/ and acme-common
+# links it into /etc/ssl/acme/; the hotplug script
+# /etc/hotplug.d/acme/90-nginx-cert copies it where nginx expects it and
+# reloads nginx.
+#
+# Certificates come from Let's Encrypt production. acme-common only schedules
+# nightly renewals, so /etc/hotplug.d/iface/90-acme kicks off the first
+# issuance when the WAN comes up.
+
+config acme
+	option account_email '@ACME_EMAIL@'
+	option debug 0
+
+config cert 'mon_drasa'
+	option enabled 1
+	option staging 0
+	list domains 'mon.drasa.eu'
+	option validation_method 'dns'
+	option dns 'dns_gandi_livedns'
+	list credentials 'GANDI_LIVEDNS_TOKEN="@GANDI_API_KEY@"'

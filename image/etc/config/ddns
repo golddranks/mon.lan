@@ -1,0 +1,36 @@
+# Dynamic DNS (Gandi LiveDNS).
+#
+# The old setup published drasa.eu (apex) and a few subdomains through Gandi.
+# The API key is a secret: it is injected at build time from secrets.sed and is
+# passed to ddns-scripts as `option password`.
+#
+# No service is enabled yet, deliberately: publishing a LAN host's AAAA is only
+# useful together with a firewall opening for that host, and the `wan` zone
+# forwards with REJECT - so the per-host policy has to be chosen first. Add one
+# `config service` per record and set `enabled '1'`.
+#
+# For a LAN host, ddns-scripts must be told which address to publish:
+# `option ip_source 'script'` runs `option ip_script` and uses its stdout, so a
+# small helper printing the host's current global address does the job.
+
+config ddns 'global'
+	option ddns_dateformat '%F %R'
+	option ddns_loglines '250'
+	option upd_privateip '0'
+
+# Example - the router itself (equivalent to the old drasa_eu_ipv6 entry).
+config service 'drasa_eu_ipv6'
+	option enabled '0'
+	option service_name 'gandi.net'
+	option lookup_host 'drasa.eu'
+	option domain 'drasa.eu'
+	option username '@'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'network'
+	option ip_network 'wan6'
+	option interface 'wan6'
+	option use_syslog '2'
+	option check_unit 'minutes'
+	option force_unit 'minutes'
+	option retry_unit 'seconds'

@@ -22,6 +22,30 @@ baked into the image itself via the ImageBuilder's `FILES` overlay.
   advertised on the LAN (`ra_pref64`) so dual-stack-aware clients can build a
   CLAT for apps that never received a synthesised AAAA (464XLAT).
 
+## Wireless
+
+- Both radios are baked in `/etc/config/wireless`: 2.4 GHz (`radio0`) and
+  5 GHz (`radio1`), country `JP`, WPA2-PSK (the key comes from `secrets.sed`).
+- One SSID on both bands, so clients pick the band themselves. No 802.11r (it
+  only matters with more than one AP).
+
+## Web UI / TLS
+
+- LuCI is served by **nginx** through uwsgi; `nginx-mod-luci`'s uci-defaults
+  disables uhttpd on first boot. `http://` returns a 301 to `https://`.
+- Two HTTPS server parts (`/etc/config/nginx`): `_lan` is the LAN-only
+  default_server with a self-signed certificate (reach it by IP), and
+  `mon.drasa.eu` carries a **Let's Encrypt** certificate.
+- The certificate is issued over **DNS-01** - a `_acme-challenge` TXT record
+  written through the Gandi API - so nothing is exposed to the WAN
+  (`/etc/config/acme`). `/etc/config/dhcp` resolves `mon.drasa.eu` to the
+  router, so the panel works on the LAN without publishing the name.
+- A self-signed placeholder is generated on first boot so nginx always starts;
+  `/etc/hotplug.d/acme/90-nginx-cert` swaps in the real certificate and reloads
+  nginx whenever it is issued or renewed. The first issuance is triggered when
+  the WAN comes up (`/etc/hotplug.d/iface/90-acme`); acme-common itself only
+  schedules the nightly renewals.
+
 ## Repository layout
 
 ```
@@ -32,8 +56,9 @@ build/
   nix-run.sh          entry point: nix shell .#lima --command ./lima-run.sh
   lima-run.sh         start the VM and run build.sh inside it
 image/                rootfs overlay, rendered then merged into the image (/etc/...)
-  etc/config/         UCI: network, system, dhcp, firewall, dropbear, jool, unbound
+  etc/config/         UCI: network, system, dhcp, firewall, dropbear, wireless, jool, unbound, ddns, nginx, acme
   etc/jool/           Jool NAT64 instance definition (created at boot)
+  etc/hotplug.d/      certificate handoff (acme) and first-issuance trigger (iface)
   etc/uci-defaults/   first-boot-only scripts (self-deleting)
 secrets.sed.example   sed substitutions for the overlay's @NAME@ tokens
 ```
@@ -44,7 +69,7 @@ Requires Nix and the ability to run an x86_64 VM via lima/qemu.
 
 ```sh
 cd build
-cp ../secrets.sed.example ../secrets.sed   # then set ROOT_PW_HASH
+cp ../secrets.sed.example ../secrets.sed   # then fill in every token
 ./nix-run.sh
 ```
 
@@ -77,11 +102,10 @@ The image contains the baked credentials, so treat the output `.bin` as a secret
 
 ## Not yet implemented
 
-- Wireless: SSID, country, and 802.11r (radios are currently left to
-  `wifi config`).
-- DDNS: per-service AAAA records for LAN hosts, updated when the delegated /56
-  changes.
-- nginx TLS.
+- DDNS: the Gandi provider plumbing is in place (`/etc/config/ddns`, API key
+  from `secrets.sed`), but no record is enabled yet. Publishing a LAN host's
+  AAAA is only useful together with a firewall opening for that host, so the
+  per-host policy has to be decided first.
 
 ## Notes
 

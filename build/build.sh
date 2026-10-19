@@ -71,6 +71,17 @@ printf '%s\n' "${ROOT_HASH}" |
 	exit 1
 }
 
+# Any '@TOKEN@' left in the rendered overlay means a secret was never
+# substituted. Baking a placeholder is silent and dangerous (a literal
+# '@WIFI_PW@' passphrase, an '@GANDI_API_KEY@' that always 401s), so refuse.
+UNSUBSTITUTED=$(grep -rlE '@[A-Z_][A-Z_0-9]*@' "${FILES_DIR}" 2>/dev/null) || true
+if [ -n "${UNSUBSTITUTED}" ]; then
+	echo "ERROR: unsubstituted secret token(s) in the rendered overlay:" >&2
+	printf '%s\n' "${UNSUBSTITUTED}" >&2
+	echo "       Fill them in in secrets.sed (see secrets.sed.example)." >&2
+	exit 1
+fi
+
 # --- ssh keys --------------------------------------------------------------
 # Password auth is off (image/etc/config/dropbear), so the image needs a key.
 mkdir -p "${FILES_DIR}/etc/dropbear"
