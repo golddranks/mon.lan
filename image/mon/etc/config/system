@@ -6,9 +6,12 @@ config system
 	option log_size '128'
 	option urandom_seed '0'
 
+# Also serve NTP to the LAN: tsugi is IPv6-only with no global address, so the
+# router is the only clock it can reach.
 config timeserver 'ntp'
 	option enabled '1'
-	option enable_server '0'
+	option enable_server '1'
+	option interface 'lan'
 	list server '0.openwrt.pool.ntp.org'
 	list server '1.openwrt.pool.ntp.org'
 	list server '2.openwrt.pool.ntp.org'

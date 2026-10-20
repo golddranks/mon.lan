@@ -1,0 +1,40 @@
+# Network configuration for the TP-Link Archer C7 v2, baked into the image.
+#
+# Dumb AP: one bridge, no WAN. The board's switch is swconfig, not DSA, and
+# board.d maps CPU port 0 (untagged) to eth1 for the LAN side; the WAN side is
+# CPU port 6 on eth0. eth1 therefore carries the LAN as plain Ethernet, so the
+# bridge is built over eth1, not eth1.1.
+#
+# All five physical ports are in the one VLAN, so the cable to mon can go into
+# any of them - there is no dead "WAN" port.
+#
+# The management address is a static ULA and deliberately not a GUA: mon
+# forwards inbound IPv6 22/80/443 to every LAN host, so a global address would
+# expose this device's LuCI to the internet. There is no default route either;
+# an access point has nothing to reach off-link.
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config switch
+	option name 'switch0'
+	option reset '1'
+	option enable_vlan '1'
+
+config switch_vlan
+	option device 'switch0'
+	option vlan '1'
+	option ports '0 1 2 3 4 5'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'eth1'
+
+config interface 'lan'
+	option device 'br-lan'
+	option proto 'static'
+	list ip6addr 'fd42:6d6f:6e00::2/64'

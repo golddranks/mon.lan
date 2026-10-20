@@ -12,9 +12,18 @@ chmod 700 "$LIMA_HOME"
 # Lima 2.x mounts $HOME read-only by default, but the build writes under build/
 # (the rendered overlay and the output image), so mount it writable. Caching
 # the sshfs dir listings also makes brand-new files under image/ invisible to
-# the guest until the cache expires, so turn it off. These overrides apply when
-# the instance is first created; to change an existing instance, edit its
+# the guest until the cache expires, so turn it off. These overrides only apply
+# when the instance is first created; to change an existing instance, edit its
 # lima.yaml and restart it (limactl stop owrt && limactl start owrt).
-limactl start -y --vm-type qemu --arch x86_64 --name owrt \
-	--set '.mounts = [{"location": "~", "writable": true, "sshfs": {"cache": false}}]' template:debian || true
-limactl shell owrt ./build.sh
+#
+# `start --name ... template:` fails if the instance already exists (lima 2.2),
+# so only pass the template when creating it. `limactl start <name>` on its own
+# is idempotent: it starts a stopped instance and does nothing if it is running.
+if ! limactl list --quiet | grep -qx owrt; then
+	limactl start -y --vm-type qemu --arch x86_64 --name owrt \
+		--set '.mounts = [{"location": "~", "writable": true, "sshfs": {"cache": false}}]' \
+		template:debian
+fi
+
+limactl start owrt
+limactl shell owrt ./build.sh "$@"

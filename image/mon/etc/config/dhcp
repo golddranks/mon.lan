@@ -31,8 +31,11 @@ config dnsmasq
 	# mon.drasa.eu (the name on the TLS certificate) resolves to the router
 	# itself. address_as_local makes it authoritative, so IPv4 lookups get an
 	# empty answer rather than being forwarded upstream.
+	# tsugi is the access point in the other room; it has a static ULA, so the
+	# name does not depend on a lease or on the delegated prefix.
 	option address_as_local '1'
 	list address '/mon.drasa.eu/fd42:6d6f:6e00::1'
+	list address '/tsugi.lan/fd42:6d6f:6e00::2'
 
 config dhcp 'lan'
 	option interface 'lan'
