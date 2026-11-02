@@ -1,0 +1,62 @@
+# Wireless for the Archer C7 v2 (ath79, mac80211, swconfig).
+#
+# Radio paths are the realpath of /sys/class/ieee80211/phyN/device with
+# /sys/devices/ stripped. The full path is required: on every boot
+# /etc/hotplug.d/ieee80211/10-wifi-detect re-runs `wifi config`, which appends a
+# duplicate radio for any phy whose `path` it cannot match exactly, and that
+# duplicate then takes the phy over and leaves no AP interface behind. phy0 is
+# the 5 GHz ath10k card on PCIe, phy1 the 2.4 GHz ath9k MAC on the AHB bus (the
+# board DTS labels its LEDs phy0tpt = 5 GHz, phy1tpt = 2.4 GHz).
+#
+# Same SSID and key as mon, so clients move between the two APs on their own.
+# 802.11r is on with mon's mobility domain; the FT keys are derived from the
+# shared PSK. 802.11k/v are on too, backed by usteer. Channels are offset from
+# mon (2.4 GHz: 1 vs 6, 5 GHz: 36 vs 52) so the APs do not sit on top of each
+# other. 52 is a DFS channel, so the 5 GHz radio waits out the channel
+# availability check before it starts.
+#
+# The PSK is baked from secrets.sed (@WIFI_PW@).
+
+config wifi-device 'radio0'
+	option type 'mac80211'
+	option path 'pci0000:00/0000:00:00.0'
+	option band '5g'
+	option channel '52'
+	option htmode 'VHT80'
+	option country 'JP'
+
+config wifi-iface 'default_radio0'
+	option device 'radio0'
+	option network 'lan'
+	option mode 'ap'
+	option ssid 'Skeletor'
+	option encryption 'psk2'
+	option key '@WIFI_PW@'
+	option ieee80211r '1'
+	option mobility_domain 'cc66'
+	option ft_over_ds '1'
+	option ft_psk_generate_local '1'
+	option ieee80211k '1'
+	option ieee80211v '1'
+
+config wifi-device 'radio1'
+	option type 'mac80211'
+	option path 'platform/ahb/18100000.wmac'
+	option band '2g'
+	option channel '6'
+	option htmode 'HT20'
+	option country 'JP'
+
+config wifi-iface 'default_radio1'
+	option device 'radio1'
+	option network 'lan'
+	option mode 'ap'
+	option ssid 'Skeletor'
+	option encryption 'psk2'
+	option key '@WIFI_PW@'
+	option ieee80211r '1'
+	option mobility_domain 'cc66'
+	option ft_over_ds '1'
+	option ft_psk_generate_local '1'
+	option ieee80211k '1'
+	option ieee80211v '1'

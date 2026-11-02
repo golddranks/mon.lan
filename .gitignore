@@ -1,4 +1,5 @@
 secrets.sed
+secrets/
 *.key
 
 # build artifacts

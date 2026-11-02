@@ -3,7 +3,7 @@
 # into the running configuration on every (re)start.
 #
 # The HTTP server listens on IPv6 only: the LAN is IPv6-only, and IPv4 :80/:443
-# are owned by the stream proxy in /etc/nginx/stream.d (mame's names).
+# are owned by the stream proxy in /etc/nginx/stream.d (cafe's names).
 #
 # Two HTTPS server parts:
 #   _lan          - default_server, LAN-only, self-signed (works by IP)

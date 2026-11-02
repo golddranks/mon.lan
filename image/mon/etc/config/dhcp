@@ -31,11 +31,24 @@ config dnsmasq
 	# mon.drasa.eu (the name on the TLS certificate) resolves to the router
 	# itself. address_as_local makes it authoritative, so IPv4 lookups get an
 	# empty answer rather than being forwarded upstream.
-	# tsugi is the access point in the other room; it has a static ULA, so the
-	# name does not depend on a lease or on the delegated prefix.
+	# ban is the access point in the other room; it has a static ULA, so the
+	# name does not depend on a lease or on the delegated prefix. It gets both
+	# the LAN-style name and a drasa.eu name, the latter only for reading.
 	option address_as_local '1'
 	list address '/mon.drasa.eu/fd42:6d6f:6e00::1'
-	list address '/tsugi.lan/fd42:6d6f:6e00::2'
+	list address '/mon.lan/fd42:6d6f:6e00::1'
+	list address '/ban.lan/fd42:6d6f:6e00::2'
+	list address '/ban.drasa.eu/fd42:6d6f:6e00::2'
+
+# cafe (the server) gets a static DHCPv6 lease: odhcpd matches this DUID and
+# composes the pinned host id onto the active prefix, so the GUA is
+# <delegated /64>::cafe and the ULA fd42:6d6f:6e00::cafe. The AAAA records in
+# /etc/config/ddns publish the GUA. Without the pin odhcpd hands out an address
+# hashed from the DUID (::c04 today), which is stable but meaningless to read.
+config host
+	option name 'cafe'
+	option duid '0001000130d93a1e082e5f1bc5f0'
+	option hostid 'cafe'
 
 config dhcp 'lan'
 	option interface 'lan'

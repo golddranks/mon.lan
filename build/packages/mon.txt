@@ -8,9 +8,13 @@ luci
 luci-ssl
 
 # --- WiFi: full hostapd (802.11r/AP/WPS) instead of the basic default ---
+# Also required for 802.11k/v: the basic variant has no k/v support and
+# disables the interface if they are enabled.
 -wpad-basic-mbedtls
 wpad-mbedtls
 hostapd-utils
+# Steering and neighbour-report sync between the APs (see /etc/config/usteer).
+usteer
 
 # --- Diagnostics / convenience ---
 curl

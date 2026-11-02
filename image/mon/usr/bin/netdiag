@@ -1,0 +1,387 @@
+#!/bin/sh
+# Regression checks for the invariants this repo's mon configuration is built
+# around.
+#
+# The expectations are the constants below, not a reading of the running
+# config: if the design changes, this file has to change with it, and a stale
+# copy here will report FAIL with confidence.
+#
+# Not covered: the NAT64 datapath (Jool only translates forwarded traffic, so it
+# has to be tested from a LAN client), ACME renewal itself (only the certificate
+# it produced is checked), and cafe's own services beyond a TCP handshake.
+#
+# Read-only. Exit status is 1 if any check fails.
+
+WAN_DEV="eth1"
+LAN_DEV="br-lan"
+MON_NAME="mon.drasa.eu"
+WEB_NAME="webshare.drasa.eu"
+ULA="fd42:6d6f:6e00::1"
+BAN_ULA="fd42:6d6f:6e00::2"
+CAFE_ULA="fd42:6d6f:6e00::cafe"
+POOL6="64:ff9b::/96"
+PREFIX_STEM="64:ff9b::"
+JOOL_INSTANCE="nat64"
+CERT_MIN_DAYS=14
+
+bad=0
+
+pass() { printf '[PASS] %-20s %s\n' "$1" "$2"; }
+fail() {
+	printf '[FAIL] %-20s %s\n' "$1" "$2"
+	bad=1
+}
+info() { printf '[info] %-20s %s\n' "$1" "$2"; }
+skip() { printf '[skip] %-20s %s\n' "$1" "$2"; }
+
+# Answers for a name, one per line; the resolver's own "Address: x:53" dropped.
+# $3 is an optional query type (A, AAAA).
+dns_answers() {
+	if [ -n "${3-}" ]; then
+		nslookup -type="$3" "$2" "$1" 2>/dev/null |
+			sed -n 's/^Address:[[:space:]]*//p' | grep -vxF "$1:53"
+	else
+		nslookup "$2" "$1" 2>/dev/null |
+			sed -n 's/^Address:[[:space:]]*//p' | grep -vxF "$1:53"
+	fi
+}
+
+http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@" 2>/dev/null; }
+
+# --- what the box currently is ---------------------------------------------
+release=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)
+info "image" "${release:-unknown}"
+
+wan4=$(ip -4 -o addr show dev "$WAN_DEV" scope global 2>/dev/null |
+	sed -n 's/.* inet \([0-9.]*\)\/.*/\1/p' | head -n 1)
+wan6_addr=$(ip -6 -o addr show dev "$WAN_DEV" scope global 2>/dev/null |
+	sed -n 's/.* inet6 \([0-9a-fA-F:]*\)\/.*/\1/p' | head -n 1)
+
+wan6_status=$(ubus call network.interface.wan6 status 2>/dev/null)
+pd_addr=$(printf '%s' "$wan6_status" |
+	jsonfilter -e '@["ipv6-prefix"][0].address' 2>/dev/null)
+pd_mask=$(printf '%s' "$wan6_status" |
+	jsonfilter -e '@["ipv6-prefix"][0].mask' 2>/dev/null)
+# The /56 the LAN lives in, without the trailing "::" (e.g. 2405:1200:542:5f00)
+pd_stem=$(printf '%s' "$pd_addr" | sed 's/::$//')
+
+lan6=$(ip -6 -o addr show dev "$LAN_DEV" scope global 2>/dev/null |
+	sed -n 's/.* inet6 \([0-9a-fA-F:]*\)\/.*/\1/p')
+lan6_list=$(printf '%s' "$lan6" | tr '\n' ' ')
+
+# --- WAN --------------------------------------------------------------------
+if [ -n "$wan4" ]; then
+	pass "wan ipv4" "$wan4"
+else
+	fail "wan ipv4" "no global address on $WAN_DEV"
+fi
+
+if [ -n "$pd_addr" ]; then
+	pass "delegated prefix" "$pd_addr/$pd_mask"
+else
+	fail "delegated prefix" "wan6 has no ipv6-prefix"
+fi
+
+if [ "$pd_mask" = "56" ]; then
+	pass "prefix length" "/56 as requested"
+else
+	fail "prefix length" "expected 56, got '${pd_mask:-none}'"
+fi
+
+# --- LAN is IPv6-only -------------------------------------------------------
+if [ -n "$(ip -4 -o addr show dev "$LAN_DEV" 2>/dev/null)" ]; then
+	fail "lan ipv4" "$LAN_DEV has an IPv4 address; the LAN must be v6-only"
+else
+	pass "lan ipv4" "none on $LAN_DEV"
+fi
+
+if [ "$(uci -q get dhcp.lan.dhcpv4)" = "disabled" ]; then
+	pass "dhcpv4" "disabled on lan"
+else
+	fail "dhcpv4" "expected 'disabled', got '$(uci -q get dhcp.lan.dhcpv4)'"
+fi
+
+case " $lan6_list " in
+*" $ULA "*) pass "lan ula" "$ULA" ;;
+*) fail "lan ula" "expected $ULA on $LAN_DEV, have: $lan6_list" ;;
+esac
+
+lan_gua=$(printf '%s\n' "$lan6" | grep -v '^fd' | head -n 1)
+if [ -z "$lan_gua" ]; then
+	fail "lan gua" "no global unicast address on $LAN_DEV"
+elif [ -n "$pd_stem" ] &&
+	[ "$(printf '%s' "$lan_gua" | cut -d: -f1-4)" = "$pd_stem" ]; then
+	pass "lan gua" "$lan_gua"
+else
+	fail "lan gua" "$lan_gua is not inside $pd_addr/$pd_mask"
+fi
+
+# --- the prefix is actually routed upstream ---------------------------------
+# Holding a delegation means only that netifd has one. J:COM has stopped
+# routing ours while the lease still looked valid for days, and every check
+# above stayed green. Ping out sourced from the LAN GUA: same next hop, but the
+# source is what an ISP filters on. The WAN-sourced probe is the control, so a
+# dead uplink is reported as such instead of as a bad prefix.
+probe6="2606:4700:4700::1111"
+if [ -z "$lan_gua" ] || [ -z "$wan6_addr" ]; then
+	skip "lan-sourced egress" "need both a LAN GUA and a WAN IPv6 address"
+elif ! ping6 -c 1 -W 2 -I "$wan6_addr" "$probe6" >/dev/null 2>&1; then
+	fail "lan-sourced egress" "no uplink at all: $wan6_addr cannot reach $probe6"
+elif ping6 -c 1 -W 2 -I "$lan_gua" "$probe6" >/dev/null 2>&1; then
+	pass "lan-sourced egress" "$lan_gua -> $probe6"
+else
+	fail "lan-sourced egress" "$lan_gua gets no reply while $wan6_addr does: the prefix is not routed upstream"
+fi
+
+# --- RAs, DNS64 and local names ---------------------------------------------
+if [ "$(uci -q get dhcp.lan.ra)" = "server" ]; then
+	pass "ra" "server on lan"
+else
+	fail "ra" "expected 'server', got '$(uci -q get dhcp.lan.ra)'"
+fi
+
+if [ "$(uci -q get dhcp.lan.ra_pref64)" = "$POOL6" ]; then
+	pass "ra pref64" "$POOL6"
+else
+	fail "ra pref64" "expected $POOL6, got '$(uci -q get dhcp.lan.ra_pref64)'"
+fi
+
+dns64=$(nslookup ipv4only.arpa 127.0.0.1 2>/dev/null |
+	grep -o "${PREFIX_STEM}[0-9a-fA-F:]*" | head -n 1)
+if [ -n "$dns64" ]; then
+	pass "dns64" "ipv4only.arpa -> $dns64"
+else
+	fail "dns64" "no synthesised AAAA from the local resolver"
+fi
+
+for pair in "$MON_NAME|$ULA" "ban.lan|$BAN_ULA" "ban.drasa.eu|$BAN_ULA"; do
+	name=${pair%|*}
+	want=${pair#*|}
+	answers=$(dns_answers 127.0.0.1 "$name")
+	case "
+$answers
+" in
+	*"
+$want
+"*) pass "name $name" "$want" ;;
+	*) fail "name $name" "expected $want, got: $(printf '%s' "$answers" | tr '\n' ' ')" ;;
+	esac
+done
+
+# --- the other AP -----------------------------------------------------------
+if ping6 -c 1 -W 1 "$BAN_ULA" >/dev/null 2>&1; then
+	pass "ban reachable" "$BAN_ULA"
+else
+	fail "ban reachable" "no echo reply from $BAN_ULA"
+fi
+
+# usteer trades node and station state with the other AP over the LAN, over IPv6.
+# One entry per peer; empty means the instances cannot see each other, which is
+# what happens when `option ipv6` is left at its default of 0.
+peers=$(ubus -t 5 call usteer remote_hosts 2>/dev/null | grep -c '"id":')
+if [ "${peers:-0}" -gt 0 ]; then
+	pass "usteer peers" "$peers peer(s)"
+else
+	fail "usteer peers" "none; the APs are not exchanging state"
+fi
+
+# --- Jool -------------------------------------------------------------------
+if jool instance display >/dev/null 2>&1; then
+	pass "jool instance" "$JOOL_INSTANCE running"
+else
+	fail "jool instance" "no jool instance"
+fi
+
+pool6=$(jool -i "$JOOL_INSTANCE" global display 2>/dev/null |
+	sed -n 's/^  pool6: //p')
+if [ "$pool6" = "$POOL6" ]; then
+	pass "jool pool6" "$pool6"
+else
+	fail "jool pool6" "expected $POOL6, got '${pool6:-none}'"
+fi
+
+# pool4 is reported, not asserted: the image leaves it empty, so Jool falls back
+# to ports 61001-65535 (4535 transport addresses per protocol). Whether it should
+# be filled is undecided, so there is no expected value to compare against.
+for proto in tcp udp icmp; do
+	# Data rows only; the header also starts with a '|'.
+	rows=$(jool -i "$JOOL_INSTANCE" pool4 display --"$proto" 2>/dev/null |
+		grep -cE '^\| *[0-9]+ \|')
+	info "pool4 $proto" "${rows:-0} entry(s)"
+done
+
+info "ephemeral ports" "$(sysctl -n net.ipv4.ip_local_port_range 2>/dev/null |
+	tr -s ' \t' ' ')"
+
+info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
+	grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):' | tr '\n' ' ')"
+
+# Jool translates forwarded traffic only, and the router has no route for
+# pool6, so its own stack cannot exercise the datapath. Test from a LAN host.
+skip "nat64 datapath" "from a LAN client: dig @${PREFIX_STEM}808:808 example.com"
+
+# --- firewall ---------------------------------------------------------------
+forward_wan=$(nft list chain inet fw4 forward_wan 2>/dev/null)
+case "$forward_wan" in
+*"ipv6 tcp dport { 22, 80, 443 }"*)
+	pass "fw v6 passthru" "tcp 22/80/443 to LAN hosts"
+	;;
+*) fail "fw v6 passthru" "no ipv6 rule forwarding tcp 22/80/443" ;;
+esac
+
+input_wan=$(nft list chain inet fw4 input_wan 2>/dev/null)
+case "$input_wan" in
+*"ipv4 tcp dport { 80, 443 }"*)
+	pass "fw v4 web" "80/443 accepted for the stream proxy"
+	;;
+*) fail "fw v4 web" "no ipv4 accept for 80/443; nginx cannot be reached" ;;
+esac
+
+case "$input_wan" in
+*"ipv6 tcp dport { 80, 443 }"*)
+	fail "fw v6 input" "80/443 accepted from WAN; LuCI is exposed"
+	;;
+*) pass "fw v6 input" "no 80/443 from WAN" ;;
+esac
+
+# --- services ---------------------------------------------------------------
+for svc in odhcpd dnsmasq unbound nginx uwsgi usteer; do
+	if pgrep -f "$svc" >/dev/null 2>&1; then
+		pass "service $svc" "running"
+	else
+		fail "service $svc" "not running"
+	fi
+done
+
+# --- web --------------------------------------------------------------------
+code=$(http_code -k "https://[$ULA]/")
+if [ "$code" = "200" ]; then
+	pass "luci https" "200 on [$ULA]"
+else
+	fail "luci https" "expected 200 on [$ULA], got '$code'"
+fi
+
+code=$(http_code "http://[$ULA]/")
+if [ "$code" = "301" ]; then
+	pass "http redirect" "301 to https"
+else
+	fail "http redirect" "expected 301 on [$ULA], got '$code'"
+fi
+
+code=$(http_code "https://$MON_NAME/")
+if [ "$code" = "200" ]; then
+	pass "tls verified" "$MON_NAME validates against the CA bundle"
+else
+	fail "tls verified" "expected 200 with a valid cert, got '$code'"
+fi
+
+if openssl s_client -connect "[$ULA]:443" -servername "$MON_NAME" </dev/null 2>/dev/null |
+	openssl x509 -checkend "$((CERT_MIN_DAYS * 86400))" -noout >/dev/null 2>&1; then
+	pass "cert expiry" "valid for more than $CERT_MIN_DAYS days"
+else
+	fail "cert expiry" "certificate expires within $CERT_MIN_DAYS days"
+fi
+
+code=$(http_code -k "https://[$CAFE_ULA]/")
+if [ "$code" != "000" ] && [ -n "$code" ]; then
+	pass "cafe 443" "$code from [$CAFE_ULA]"
+else
+	fail "cafe 443" "no answer from [$CAFE_ULA]"
+fi
+
+if [ -n "$wan4" ]; then
+	code=$(http_code -k --resolve "$WEB_NAME:443:$wan4" "https://$WEB_NAME/")
+	if [ "$code" = "200" ]; then
+		pass "v4 web path" "$WEB_NAME via $wan4:443 -> cafe"
+	else
+		fail "v4 web path" "expected 200 via $wan4:443, got '$code'"
+	fi
+else
+	skip "v4 web path" "no WAN IPv4"
+fi
+
+# --- wireless and NTP -------------------------------------------------------
+want_ssid=$(uci -q get wireless.@wifi-iface[0].ssid)
+radios_up=$(ubus call network.wireless status 2>/dev/null |
+	jsonfilter -e '@.*.up' | grep -c true)
+if [ "$radios_up" = "2" ]; then
+	pass "wireless" "2 radios up"
+else
+	fail "wireless" "$radios_up radios up, expected 2"
+fi
+
+served_ssid=$(ubus call network.wireless status 2>/dev/null |
+	jsonfilter -e '@.*.interfaces[*].config.ssid' | sort -u | tr '\n' ' ')
+if [ -n "$want_ssid" ] && [ "$served_ssid" = "$want_ssid " ]; then
+	pass "ssid" "$want_ssid on both radios"
+else
+	fail "ssid" "expected '$want_ssid', serving: $served_ssid"
+fi
+
+if [ "$(uci -q get system.ntp.enable_server)" = "1" ]; then
+	pass "ntp server" "serving on $(uci -q get system.ntp.interface)"
+else
+	fail "ntp server" "enable_server is not 1"
+fi
+
+# --- DDNS -------------------------------------------------------------------
+# Recursive resolvers keep serving the old rrset for up to the zone TTL after a
+# renumber, so ask the zone's own nameservers instead: they always have the
+# current data.
+ddns_domain=$(uci -q get ddns.cafe_a.domain)
+ddns_resolver=1.1.1.1
+if [ -n "$ddns_domain" ]; then
+	ns=$(nslookup -type=NS "$ddns_domain" 1.1.1.1 2>/dev/null |
+		sed -n 's/.*nameserver = //p' | head -n 1)
+	if [ -n "$ns" ]; then
+		ns_addr=$(dns_answers 1.1.1.1 "$ns" A | head -n 1)
+		[ -n "$ns_addr" ] && ddns_resolver=$ns_addr && ddns_ns=$ns
+	fi
+fi
+info "ddns resolver" "$ddns_resolver${ddns_ns:+ ($ddns_ns, authoritative)}"
+
+for section in $(uci -q show ddns |
+	sed -n 's/^ddns\.\([^.=]*\)\.lookup_host=.*/\1/p'); do
+	host=$(uci -q get "ddns.$section.lookup_host")
+	if [ "$(uci -q get "ddns.$section.use_ipv6")" = "1" ]; then
+		expected="$pd_stem::cafe"
+		qtype=AAAA
+	else
+		expected="$wan4"
+		qtype=A
+	fi
+
+	if [ -z "$expected" ] || [ "$expected" = "::cafe" ]; then
+		skip "ddns $section" "missing WAN IPv4 or delegated prefix"
+		continue
+	fi
+
+	answers=$(dns_answers "$ddns_resolver" "$host" "$qtype")
+	case "
+$answers
+" in
+	*"
+$expected
+"*) pass "ddns $section" "$host -> $expected" ;;
+	*) fail "ddns $section" "$host does not publish $expected (got: $(printf '%s' "$answers" | tr '\n' ' '))" ;;
+	esac
+done
+
+# --- published ULAs ---------------------------------------------------------
+# mon and ban are in the zone as their ULAs. Static records, so unlike the DDNS
+# ones they cannot drift with the prefix - but they can be deleted.
+for pair in "$MON_NAME|$ULA" "ban.drasa.eu|$BAN_ULA"; do
+	name=${pair%|*}
+	want=${pair#*|}
+	answers=$(dns_answers "$ddns_resolver" "$name" AAAA)
+	case "
+$answers
+" in
+	*"
+$want
+"*) pass "zone $name" "$want" ;;
+	*) fail "zone $name" "public AAAA is not $want (got: $(printf '%s' "$answers" | tr '\n' ' '))" ;;
+	esac
+done
+
+exit "$bad"

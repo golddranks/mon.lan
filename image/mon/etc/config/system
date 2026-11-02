@@ -6,7 +6,7 @@ config system
 	option log_size '128'
 	option urandom_seed '0'
 
-# Also serve NTP to the LAN: tsugi is IPv6-only with no global address, so the
+# Also serve NTP to the LAN: ban is IPv6-only with no global address, so the
 # router is the only clock it can reach.
 config timeserver 'ntp'
 	option enabled '1'

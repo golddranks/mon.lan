@@ -1,0 +1,12 @@
+# usteer: neighbour-report and steering state shared between mon and ban.
+#
+# The LAN is IPv6-only, so the inter-AP exchange has to use IPv6 - with the
+# default (IPv4) the two instances cannot see each other and each steers on
+# local information alone. Unset options keep usteer's compiled defaults: band
+# steering towards 5 GHz every 30 s, no signal or load kicks. The inter-AP
+# exchange only logs at debug_level 4; check `ubus call usteer remote_hosts`.
+
+config usteer
+	option network 'lan'
+	option ipv6 '1'
+	option syslog '1'

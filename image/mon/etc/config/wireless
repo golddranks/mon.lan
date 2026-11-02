@@ -4,7 +4,10 @@
 # (The old Archer C7 had these the other way round.)
 #
 # One SSID on both bands, so clients choose the band and move between them on
-# their own. No 802.11r: it only matters with more than one AP.
+# their own. 802.11r (fast BSS transition) is on, with the same mobility domain
+# as ban: `ft_psk_generate_local` derives the FT keys from the shared PSK, so
+# the two APs only have to agree on the domain. 802.11k/v are on too; their
+# neighbour reports and steering state are exchanged by usteer.
 # The PSK is baked from secrets.sed (@WIFI_PW@).
 
 config wifi-device 'radio0'
@@ -22,6 +25,12 @@ config wifi-iface 'default_radio0'
 	option ssid 'Skeletor'
 	option encryption 'psk2'
 	option key '@WIFI_PW@'
+	option ieee80211r '1'
+	option mobility_domain 'cc66'
+	option ft_over_ds '1'
+	option ft_psk_generate_local '1'
+	option ieee80211k '1'
+	option ieee80211v '1'
 
 config wifi-device 'radio1'
 	option type 'mac80211'
@@ -39,3 +48,9 @@ config wifi-iface 'default_radio1'
 	option ssid 'Skeletor'
 	option encryption 'psk2'
 	option key '@WIFI_PW@'
+	option ieee80211r '1'
+	option mobility_domain 'cc66'
+	option ft_over_ds '1'
+	option ft_psk_generate_local '1'
+	option ieee80211k '1'
+	option ieee80211v '1'

@@ -1,9 +1,10 @@
 #!/bin/sh
-# Print the GUA of a LAN host with a fixed SLAAC suffix (`slaac token` in
-# dhcpcd), e.g. mame's ::10. The delegated /64 changes with the PD; the suffix
-# does not. Used as ddns-scripts' ip_script, so it takes the suffix as $1:
+# Print the GUA of a LAN host whose host id is pinned by a static DHCPv6
+# lease (cafe's, see the `config host` entry in /etc/config/dhcp). The
+# delegated /64 changes with the PD; the host id does not. Used as
+# ddns-scripts' ip_script, so it takes the host id as $1:
 #
-#     lan_suffix.sh 10  ->  2405:1200:542:5500::10
+#     lan_suffix.sh cafe  ->  2405:1200:542:5f00::cafe
 
 suffix="$1"
 [ -n "$suffix" ] || exit 1

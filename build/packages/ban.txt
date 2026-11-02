@@ -12,3 +12,11 @@ luci-ssl
 # its own RAs with no prefix to advertise.
 -dnsmasq
 -odhcpd-ipv6only
+
+# --- WiFi: full hostapd, same as mon, so 802.11k/r/v are actually available ---
+# The default wpad-basic has no k/v support, and enabling them there disables
+# the interface.
+-wpad-basic-mbedtls
+wpad-mbedtls
+# Steering and neighbour-report sync between the APs (see /etc/config/usteer).
+usteer

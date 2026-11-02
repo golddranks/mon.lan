@@ -1,9 +1,10 @@
-# Dynamic DNS (Gandi LiveDNS) for the names served by mame.
+# Dynamic DNS (Gandi LiveDNS) for the names served by cafe.
 #
 # Each name gets an A record for the WAN IPv4 (inbound IPv4 terminates on the
-# router's nginx stream proxy) and an AAAA for mame's GUA. mame pins its suffix
-# with `slaac token ::10` (see its NixOS config), so the AAAA is the current
-# LAN /64 plus `::10`; /usr/lib/ddns/lan_suffix.sh prints it.
+# router's nginx stream proxy) and an AAAA for cafe's GUA. odhcpd pins cafe's
+# host id with a static DHCPv6 lease (`duid` plus `hostid cafe` in
+# /etc/config/dhcp), so the AAAA is the current LAN /64 plus `::cafe`;
+# /usr/lib/ddns/lan_suffix.sh prints it.
 #
 # `ip_source network` follows DHCP/PD changes; the AAAA script follows the
 # delegated prefix. The provider script in /usr/lib/ddns is overridden by the
@@ -58,7 +59,7 @@ config service 'webshare_a'
 	option ip_network 'wan'
 	option use_syslog '2'
 
-# --- AAAA records (mame's GUA, suffix ::10) ---
+# --- AAAA records (cafe's GUA, suffix ::cafe) ---
 
 config service 'bitwarden_aaaa'
 	option enabled '1'
@@ -69,7 +70,7 @@ config service 'bitwarden_aaaa'
 	option password '@GANDI_API_KEY@'
 	option use_ipv6 '1'
 	option ip_source 'script'
-	option ip_script '/usr/lib/ddns/lan_suffix.sh 10'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh cafe'
 	option use_syslog '2'
 
 config service 'syncthing_aaaa'
@@ -81,7 +82,7 @@ config service 'syncthing_aaaa'
 	option password '@GANDI_API_KEY@'
 	option use_ipv6 '1'
 	option ip_source 'script'
-	option ip_script '/usr/lib/ddns/lan_suffix.sh 10'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh cafe'
 	option use_syslog '2'
 
 config service 'webshare_aaaa'
@@ -93,5 +94,29 @@ config service 'webshare_aaaa'
 	option password '@GANDI_API_KEY@'
 	option use_ipv6 '1'
 	option ip_source 'script'
-	option ip_script '/usr/lib/ddns/lan_suffix.sh 10'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh cafe'
+	option use_syslog '2'
+
+config service 'cafe_a'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'cafe.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'cafe'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '0'
+	option ip_source 'network'
+	option ip_network 'wan'
+	option use_syslog '2'
+
+config service 'cafe_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'cafe.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'cafe'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'script'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh cafe'
 	option use_syslog '2'

@@ -8,7 +8,7 @@
 # Inbound:
 #   * IPv6 forwards TCP 22/80/443 to every LAN host, untouched (no NAT66).
 #     The router's own input stays closed.
-#   * IPv4 terminates TCP 80/443 on the router, where nginx proxies to mame
+#   * IPv4 terminates TCP 80/443 on the router, where nginx proxies to cafe
 #     (see /etc/nginx/stream.d); there are no IPv4 forwards to the LAN.
 
 config defaults

@@ -2,27 +2,35 @@
 set -eu
 
 # Build one device's OpenWrt image with all settings baked in.
-# Usage: ./build.sh <device>   (device = a file name under devices/)
+# Usage: ./build.sh <device>
 # Run inside the Linux build VM (see nix-run.sh / lima-run.sh).
 
 # OpenWrt release. Each device pins the sha256 of its own ImageBuilder tarball.
-OPENWRT_VERSION="25.12.5"
+OPENWRT_VERSION="25.12.6"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" >/dev/null 2>&1 && pwd -P)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 
 DEVICE="${1-}"
-DEVICE_CONF="${SCRIPT_DIR}/devices/${DEVICE}.conf"
-if [ ! -f "${DEVICE_CONF}" ]; then
+# Target, profile and ImageBuilder checksum per device. The checksum belongs to
+# the release above, so bump them together.
+case "${DEVICE}" in
+mon)
+	TARGET_PATH="mediatek/filogic"
+	PROFILE="glinet_gl-mt6000"
+	IB_SHA256="8ce0da1e2fb3d0454ebeb1e3df5705f2145e09ffe6f00d5077c18369719daf83"
+	;;
+ban)
+	TARGET_PATH="ath79/generic"
+	PROFILE="tplink_archer-c7-v2"
+	IB_SHA256="6f40746139c833336e67b03d5bdb0501d3a80fb789bf7e5b7a9b9984b83a5e23"
+	;;
+*)
 	echo "usage: $0 <device>" >&2
-	echo "devices:" >&2
-	for f in "${SCRIPT_DIR}"/devices/*.conf; do
-		echo "  $(basename "${f}" .conf)" >&2
-	done
+	echo "devices: mon ban" >&2
 	exit 1
-fi
-# shellcheck source=/dev/null
-. "${DEVICE_CONF}"
+	;;
+esac
 
 # The ImageBuilder tarball is named after the target, not the profile.
 IB_TARGET="$(printf '%s' "${TARGET_PATH}" | tr '/' '-')"
@@ -98,6 +106,30 @@ fi
 # Password auth is off (image/<device>/etc/config/dropbear), so the image needs
 # a key.
 mkdir -p "${FILES_DIR}/etc/dropbear"
+
+# Stable host keys, so a reflash does not invalidate clients' known_hosts.
+# Dropbear generates whatever key is missing on first boot; with these present
+# it uses them. They are per device and kept out of git (see .gitignore).
+if [ -d "${REPO_DIR}/secrets/${DEVICE}" ]; then
+	for key in "${REPO_DIR}/secrets/${DEVICE}"/dropbear_*_host_key; do
+		[ -f "${key}" ] || continue
+		cp "${key}" "${FILES_DIR}/etc/dropbear/"
+		chmod 600 "${FILES_DIR}/etc/dropbear/$(basename "${key}")"
+	done
+
+	# LuCI's self-signed certificate. uhttpd generates a stock one ("OpenWrt")
+	# if these are missing, so baking them keeps the panel's identity sane and
+	# stable across reflashes.
+	if [ -f "${REPO_DIR}/secrets/${DEVICE}/uhttpd.crt" ]; then
+		cp "${REPO_DIR}/secrets/${DEVICE}/uhttpd.crt" "${FILES_DIR}/etc/uhttpd.crt"
+		chmod 644 "${FILES_DIR}/etc/uhttpd.crt"
+	fi
+	if [ -f "${REPO_DIR}/secrets/${DEVICE}/uhttpd.key" ]; then
+		cp "${REPO_DIR}/secrets/${DEVICE}/uhttpd.key" "${FILES_DIR}/etc/uhttpd.key"
+		chmod 600 "${FILES_DIR}/etc/uhttpd.key"
+	fi
+fi
+
 wget -q -O "${FILES_DIR}/etc/dropbear/authorized_keys" "${PUBKEYS_URL}" || true
 [ -s "${FILES_DIR}/etc/dropbear/authorized_keys" ] ||
 	{ echo "ERROR: no SSH keys fetched from ${PUBKEYS_URL}" >&2; exit 1; }
