@@ -74,6 +74,16 @@ rm -rf "${FILES_DIR}"
 cp -a "${REPO_DIR}/image/${DEVICE}" "${FILES_DIR}"
 find "${FILES_DIR}" -type f -exec sed -i -f "${SECRETS}" {} +
 
+# git records only the executable bit, so files carried in the overlay arrive
+# as 0644. crond would still read the crontab, and mon-send would still read the
+# mail config, but neither should be world-readable.
+if [ -f "${FILES_DIR}/etc/crontabs/root" ]; then
+	chmod 600 "${FILES_DIR}/etc/crontabs/root"
+fi
+if [ -f "${FILES_DIR}/etc/msmtprc" ]; then
+	chmod 600 "${FILES_DIR}/etc/msmtprc"
+fi
+
 # --- validate secrets ------------------------------------------------------
 # The root password hash is opaque, so a typo in it is invisible in a diff and
 # `crypt()` will simply never match - silently locking you out of the device.
@@ -138,6 +148,36 @@ wget -q -O "${FILES_DIR}/etc/dropbear/authorized_keys" "${PUBKEYS_URL}" || true
 # directory at 0775 and the file at 0664, silently disabling key auth.
 chmod 700 "${FILES_DIR}/etc/dropbear"
 chmod 600 "${FILES_DIR}/etc/dropbear/authorized_keys"
+
+# --- LAN probe key ----------------------------------------------------------
+# netdiag checks the NAT64 datapath from ban, because Jool only translates
+# forwarded traffic and the router cannot exercise its own translation. The key
+# pair lives in secrets/probe/ (gitignored) and is split across the two images:
+# mon gets the private half, ban authorizes the public half.
+PROBE_KEY="${REPO_DIR}/secrets/probe/id_ed25519"
+if [ -f "${PROBE_KEY}" ]; then
+	case "${DEVICE}" in
+	mon)
+		install -d -m 700 "${FILES_DIR}/root/.ssh"
+		install -m 600 "${PROBE_KEY}" "${FILES_DIR}/root/.ssh/id_ed25519"
+		;;
+	ban)
+		[ -f "${PROBE_KEY}.pub" ] || {
+			echo "${PROBE_KEY}.pub is missing; create it with:" >&2
+			echo "  ssh-keygen -y -f ${PROBE_KEY} > ${PROBE_KEY}.pub" >&2
+			exit 1
+		}
+		_keys="${FILES_DIR}/etc/dropbear/authorized_keys"
+		[ -s "${_keys}" ] || {
+			echo "${_keys} is empty or absent; refusing to bake a ban image" >&2
+			echo "that no key could reach" >&2
+			exit 1
+		}
+		[ -n "$(tail -c 1 "${_keys}")" ] && echo >> "${_keys}"
+		awk '{ print $1, $2, "probe@mon" }' "${PROBE_KEY}.pub" >> "${_keys}"
+		;;
+	esac
+fi
 
 # --- build -----------------------------------------------------------------
 cd "${BUILD_DIR}/${IB_NAME}"

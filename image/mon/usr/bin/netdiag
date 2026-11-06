@@ -6,9 +6,9 @@
 # config: if the design changes, this file has to change with it, and a stale
 # copy here will report FAIL with confidence.
 #
-# Not covered: the NAT64 datapath (Jool only translates forwarded traffic, so it
-# has to be tested from a LAN client), ACME renewal itself (only the certificate
-# it produced is checked), and cafe's own services beyond a TCP handshake.
+# Not covered: ACME renewal itself (only the certificate it produced is
+# checked), cafe's own services beyond a TCP handshake, and the NAT64 datapath
+# when ban is offline (the datapath check needs a host on the LAN).
 #
 # Read-only. Exit status is 1 if any check fails.
 
@@ -26,6 +26,8 @@ CERT_MIN_DAYS=14
 
 bad=0
 
+# Labels are padded to 20 columns because mon-watch parses them at that width to
+# tell which checks are failing. Keep every label at 20 characters or fewer.
 pass() { printf '[PASS] %-20s %s\n' "$1" "$2"; }
 fail() {
 	printf '[FAIL] %-20s %s\n' "$1" "$2"
@@ -52,10 +54,10 @@ http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@" 2>/dev/nu
 release=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)
 info "image" "${release:-unknown}"
 
-wan4=$(ip -4 -o addr show dev "$WAN_DEV" scope global 2>/dev/null |
-	sed -n 's/.* inet \([0-9.]*\)\/.*/\1/p' | head -n 1)
-wan6_addr=$(ip -6 -o addr show dev "$WAN_DEV" scope global 2>/dev/null |
-	sed -n 's/.* inet6 \([0-9a-fA-F:]*\)\/.*/\1/p' | head -n 1)
+wan4=$(ubus call network.interface.wan status 2>/dev/null |
+	jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null | head -n 1)
+wan6_addr=$(ubus call network.interface.wan6 status 2>/dev/null |
+	jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null | head -n 1)
 
 wan6_status=$(ubus call network.interface.wan6 status 2>/dev/null)
 pd_addr=$(printf '%s' "$wan6_status" |
@@ -106,14 +108,23 @@ case " $lan6_list " in
 *) fail "lan ula" "expected $ULA on $LAN_DEV, have: $lan6_list" ;;
 esac
 
-lan_gua=$(printf '%s\n' "$lan6" | grep -v '^fd' | head -n 1)
-if [ -z "$lan_gua" ]; then
+lan_guas=$(printf '%s\n' "$lan6" | grep -v '^fd')
+# A churning PD can leave more than one GUA on the LAN. The check is that one of
+# them is inside the current delegation, and the egress probe should use that
+# one; otherwise fall back to the first for the probe's sake.
+lan_gua_inpd=
+for g in $lan_guas; do
+	[ -n "$pd_stem" ] &&
+		[ "$(printf '%s' "$g" | cut -d: -f1-4)" = "$pd_stem" ] &&
+		lan_gua_inpd=$g && break
+done
+lan_gua=${lan_gua_inpd:-$(printf '%s\n' "$lan_guas" | head -n 1)}
+if [ -z "$lan_guas" ]; then
 	fail "lan gua" "no global unicast address on $LAN_DEV"
-elif [ -n "$pd_stem" ] &&
-	[ "$(printf '%s' "$lan_gua" | cut -d: -f1-4)" = "$pd_stem" ]; then
-	pass "lan gua" "$lan_gua"
+elif [ -n "$lan_gua_inpd" ]; then
+	pass "lan gua" "$lan_gua_inpd"
 else
-	fail "lan gua" "$lan_gua is not inside $pd_addr/$pd_mask"
+	fail "lan gua" "$(printf '%s' "$lan_guas" | tr '\n' ' ') is not inside $pd_addr/$pd_mask"
 fi
 
 # --- the prefix is actually routed upstream ---------------------------------
@@ -200,25 +211,75 @@ else
 	fail "jool pool6" "expected $POOL6, got '${pool6:-none}'"
 fi
 
-# pool4 is reported, not asserted: the image leaves it empty, so Jool falls back
-# to ports 61001-65535 (4535 transport addresses per protocol). Whether it should
-# be filled is undecided, so there is no expected value to compare against.
+# pool4 must stay empty. Jool then translates from whatever address the WAN
+# interface has, on ports 61001-65535 (4,535 transport addresses per protocol).
+# A configured pool4 is authoritative and names an address DHCP can change: when
+# such rows went stale here, every IPv4 flow died while IPv6 was unaffected and
+# nothing was logged. So a configured row is a failure, not a variant.
+pool4_rows=0
 for proto in tcp udp icmp; do
 	# Data rows only; the header also starts with a '|'.
-	rows=$(jool -i "$JOOL_INSTANCE" pool4 display --"$proto" 2>/dev/null |
+	n=$(jool -i "$JOOL_INSTANCE" pool4 display --"$proto" 2>/dev/null |
 		grep -cE '^\| *[0-9]+ \|')
-	info "pool4 $proto" "${rows:-0} entry(s)"
+	pool4_rows=$((pool4_rows + n))
 done
-
+if [ "$pool4_rows" -eq 0 ]; then
+	pass "jool pool4" "empty (implicit 61001-65535 on the WAN address)"
+else
+	fail "jool pool4" "$pool4_rows row(s) configured; see the comment above"
+fi
 info "ephemeral ports" "$(sysctl -n net.ipv4.ip_local_port_range 2>/dev/null |
 	tr -s ' \t' ' ')"
 
 info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
 	grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):' | tr '\n' ' ')"
 
-# Jool translates forwarded traffic only, and the router has no route for
-# pool6, so its own stack cannot exercise the datapath. Test from a LAN host.
-skip "nat64 datapath" "from a LAN client: dig @${PREFIX_STEM}808:808 example.com"
+# --- NAT64 datapath ---------------------------------------------------------
+# Jool only translates forwarded traffic, so mon cannot test its own translation:
+# a ping from the router, or a connection to the router's own WAN address, never
+# enters the forward hook. The probe therefore runs on ban, an ordinary host on
+# the LAN whose packets are forwarded and translated like any client's.
+#
+# All three protocols are probed because pool4 holds a separate table per
+# protocol: a missing row breaks that protocol alone, and the other two keep
+# working.
+PROBE_KEY="/root/.ssh/id_ed25519"
+if [ ! -f "$PROBE_KEY" ]; then
+	skip "nat64 datapath" "no probe key at $PROBE_KEY"
+elif ! ping6 -c 1 -W 1 "$BAN_ULA" >/dev/null 2>&1; then
+	skip "nat64 datapath" "ban is offline; the probe needs a host on the LAN"
+else
+	on_ban() {
+		ssh -T -i "$PROBE_KEY" "root@$BAN_ULA" "$1" 2>/dev/null </dev/null
+	}
+
+	if on_ban 'ping6 -c 1 -W 3 64:ff9b::808:808' >/dev/null 2>&1; then
+		icmp=ok
+	else
+		icmp=no
+	fi
+
+	# A DNS query to 8.8.8.8 through NAT64 is the UDP path.
+	if on_ban 'nslookup example.com 64:ff9b::808:808' | grep -q '^Name:'; then
+		udp=ok
+	else
+		udp=no
+	fi
+
+	# busybox wget exits 8 when the server answers with an HTTP error, which is
+	# still a completed TCP connection - that is all this probes.
+	tcp_rc=$(on_ban 'wget -T 5 -O /dev/null "http://[64:ff9b::101:101]/" >/dev/null 2>&1; echo $?')
+	case "$tcp_rc" in
+	0 | 8) tcp=ok ;;
+	*) tcp=no ;;
+	esac
+
+	if [ "$icmp$udp$tcp" = okokok ]; then
+		pass "nat64 datapath" "icmp/udp/tcp from ban"
+	else
+		fail "nat64 datapath" "icmp=$icmp udp=$udp tcp=$tcp from ban"
+	fi
+fi
 
 # --- firewall ---------------------------------------------------------------
 forward_wan=$(nft list chain inet fw4 forward_wan 2>/dev/null)

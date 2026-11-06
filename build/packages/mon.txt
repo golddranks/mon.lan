@@ -47,3 +47,10 @@ nginx-mod-stream
 acme-common
 acme-acmesh
 acme-acmesh-dnsapi
+
+# --- Mail alerts (mon-watch / mon-weekly; config in /etc/msmtprc) ---
+# Full msmtp, not msmtp-nossl: Gmail needs TLS, and libgnutls comes with it.
+msmtp
+# /etc/msmtprc pins tls_trust_file at /etc/ssl/certs/ca-certificates.crt. curl
+# pulls ca-bundle in today, but depending on that is accidental.
+ca-bundle

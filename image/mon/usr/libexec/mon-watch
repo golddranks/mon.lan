@@ -1,0 +1,107 @@
+#!/bin/sh
+# Mail when the set of failing netdiag checks changes.
+#
+# Labels listed in /root/mon-watch.expected (one per line) are ignored. That
+# file is for temporary known states - the LAN prefix pin, for example - and is
+# deliberately not part of the image.
+set -u
+
+NETDIAG="${NETDIAG:-/usr/bin/netdiag}"
+SEND="${SEND:-/usr/libexec/mon-send}"
+STATE="${STATE:-/root/mon-watch.state}"
+EXPECTED="${EXPECTED:-/root/mon-watch.expected}"
+
+prev=""
+[ -f "$STATE" ] && prev=$(cat "$STATE")
+
+if [ ! -x "$NETDIAG" ]; then
+	# One message, not one per cron run: the state file records this too.
+	[ "$prev" = "netdiag-missing" ] && exit 0
+	body=/tmp/mon-watch.$$
+	printf 'netdiag is not executable at %s\n' "$NETDIAG" > "$body"
+	$SEND "mon: netdiag missing" "$body"
+	rm -f "$body"
+	printf '%s\n' "netdiag-missing" > "$STATE"
+	exit 1
+fi
+
+out=$($NETDIAG 2>&1)
+
+# netdiag prints "[FAIL] %-20s %s", so the label is the first 20 columns. netdiag
+# keeps every label within those 20 characters; a longer one would be cut here
+# and could never match the detail line reconstructed below.
+now=$(printf '%s\n' "$out" |
+	sed -n 's/^\[FAIL\] //p' |
+	cut -c1-20 |
+	sed 's/ *$//' |
+	sort -u)
+
+if [ -f "$EXPECTED" ]; then
+	# Strip comments and blanks first: an empty pattern in -f makes grep match
+	# every line, which would silently suppress all failures.
+	list=/tmp/mon-watch.expect.$$
+	sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$EXPECTED" > "$list"
+	if [ -s "$list" ]; then
+		now=$(printf '%s\n' "$now" | grep -vxF -f "$list" || true)
+	fi
+	rm -f "$list"
+fi
+now=$(printf '%s\n' "$now" | sed '/^$/d')
+
+[ "$now" = "$prev" ] && exit 0
+
+added=$(printf '%s\n' "$now" | while IFS= read -r l; do
+	[ -n "$l" ] || continue
+	printf '%s\n' "$prev" | grep -qxF "$l" || printf '%s\n' "$l"
+done)
+cleared=$(printf '%s\n' "$prev" | while IFS= read -r l; do
+	[ -n "$l" ] || continue
+	printf '%s\n' "$now" | grep -qxF "$l" || printf '%s\n' "$l"
+done)
+
+if [ -z "$now" ]; then
+	subj="mon: no unexpected failures"
+elif [ -n "$added" ]; then
+	subj="mon: new failure - $(printf '%s' "$added" | tr '\n' ' ')"
+elif [ -n "$cleared" ]; then
+	subj="mon: failure cleared - $(printf '%s' "$cleared" | tr '\n' ' ')"
+else
+	subj="mon: failures changed"
+fi
+
+body=/tmp/mon-watch.$$
+{
+	printf 'mon, %s\n\n' "$(date -u +%FT%TZ)"
+	if [ -n "$added" ]; then
+		printf 'new failures:\n'
+		printf '%s\n' "$added" | sed 's/^/  /'
+		printf '\n'
+	fi
+	if [ -n "$cleared" ]; then
+		printf 'cleared:\n'
+		printf '%s\n' "$cleared" | sed 's/^/  /'
+		printf '\n'
+	fi
+	printf 'current state:\n'
+	if [ -z "$now" ]; then
+		printf '  no unexpected failures\n'
+		if [ -f "$EXPECTED" ]; then
+			printf '\nignored by %s:\n' "$EXPECTED"
+			printf '%s\n' "$out" | grep '^\[FAIL\]' | sed 's/^/  /' || true
+		fi
+	else
+		printf '  unexpected failures:\n'
+		printf '%s\n' "$now" | sed 's/^/    /'
+		printf '\ndetail:\n'
+		printf '%s\n' "$now" | while IFS= read -r l; do
+			[ -n "$l" ] || continue
+			printf '%s\n' "$out" |
+				grep -F "[FAIL] $(printf '%-20s' "$l")" || true
+		done
+	fi
+} > "$body"
+
+$SEND "$subj" "$body"
+rm -f "$body"
+
+printf '%s\n' "$now" > "$STATE"

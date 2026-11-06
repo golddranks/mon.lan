@@ -1,0 +1,32 @@
+#!/bin/sh
+# mon-send <subject> <body-file>
+#
+# The recipient comes from secrets.sed (@ADMIN_EMAIL@); the SMTP server and its
+# credentials are msmtp's own /etc/msmtprc. When sending fails the message is
+# appended to /root/mon-notify.log rather than dropped.
+set -u
+
+subj="$1"
+body="$2"
+
+to="${MON_MAIL_TO:-@ADMIN_EMAIL@}"
+
+if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
+	err=/tmp/mon-send.$$
+	if { printf 'Subject: %s\nTo: %s\n\n' "$subj" "$to"; cat "$body"; } |
+		msmtp "$to" 2>"$err"; then
+		rm -f "$err"
+		exit 0
+	fi
+	# /tmp/msmtp.log is in RAM; keep the reason with the message itself.
+	{
+		printf '%s %s\n' "$(date -u +%FT%TZ)" "$subj"
+		printf 'delivery failed, msmtp said:\n'
+		sed 's/^/  /' "$err"
+		cat "$body"
+	} >> /root/mon-notify.log
+	rm -f "$err"
+	exit 0
+fi
+
+{ printf '%s %s\n' "$(date -u +%FT%TZ)" "$subj"; cat "$body"; } >> /root/mon-notify.log

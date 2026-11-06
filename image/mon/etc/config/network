@@ -19,6 +19,11 @@ config interface 'loopback'
 
 config globals 'globals'
 	option ula_prefix 'fd42:6d6f:6e00::/48'
+	# Pin the DHCPv6 client identity, else 14_network-generate-duid mints a random
+	# DUID-UUID on first boot and every `sysupgrade -n` presents J:COM with a new
+	# client. DUID-LL: type 4, hardware type 1 (Ethernet), eth1's MAC
+	# 94:83:c4:a6:3b:7d - well formed, so nothing about the client is invalid.
+	option dhcp_default_duid '000400019483c4a63b7d'
 
 config device
 	option name 'br-lan'

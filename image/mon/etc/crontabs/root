@@ -1,0 +1,3 @@
+# acme-common and nginx-util append their own lines when installed.
+*/10 * * * * /usr/libexec/mon-watch
+0 9 * * 1 /usr/libexec/mon-weekly

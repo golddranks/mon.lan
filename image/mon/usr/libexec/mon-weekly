@@ -1,0 +1,35 @@
+#!/bin/sh
+# Weekly report: the full netdiag run plus the numbers that have no place in a
+# pass/fail check (Jool counters, routes, recent kernel log).
+set -u
+
+SEND="${SEND:-/usr/libexec/mon-send}"
+TMP=/tmp/mon-weekly.$$
+
+{
+	printf 'mon, %s\n' "$(date -u +%FT%TZ)"
+	printf 'uptime: %s\n\n' "$(uptime)"
+
+	printf '== netdiag ==\n'
+	/usr/bin/netdiag 2>&1
+
+	printf '\n== wan ==\n'
+	ip -4 addr show eth1 2>/dev/null | sed -n 's/^ *inet \(.*\)/ipv4 \1/p'
+	ip -6 addr show eth1 2>/dev/null | sed -n 's/^ *inet6 \(.*\)/ipv6 \1/p'
+	ip -6 route show default 2>/dev/null
+
+	printf '\n== jool ==\n'
+	jool -i nat64 stats display 2>/dev/null |
+		grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):'
+	# The bare form prints TCP rows only on this build, so name each protocol.
+	for proto in tcp udp icmp; do
+		printf -- '-- pool4 %s --\n' "$proto"
+		jool -i nat64 pool4 display --"$proto" 2>/dev/null
+	done
+
+	printf '\n== logread (last 200 lines) ==\n'
+	logread 2>/dev/null | tail -n 200
+} > "$TMP" 2>&1
+
+$SEND "mon: weekly report" "$TMP"
+rm -f "$TMP"
