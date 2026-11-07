@@ -295,13 +295,37 @@ else
 fi
 
 # --- firewall ---------------------------------------------------------------
+# Only the hosts that serve are forwarded to, and by address: on a routed
+# prefix any GUA answers on 22/80/443 from the internet the moment something
+# on it listens, so an unrestricted forward rule quietly publishes every LAN
+# host.
 forward_wan=$(nft list chain inet fw4 forward_wan 2>/dev/null)
-case "$forward_wan" in
-*"ipv6 tcp dport { 22, 80, 443 }"*)
-	pass "fw v6 passthru" "tcp 22/80/443 to LAN hosts"
-	;;
-*) fail "fw v6 passthru" "no ipv6 rule forwarding tcp 22/80/443" ;;
-esac
+fwd_hosts=$(printf '%s\n' "$forward_wan" | awk '
+	/comment/ { sub(/comment ".*/, "") }
+	{
+		if ($0 !~ /accept/ || $0 !~ /tcp dport/) next
+		addr = "-"
+		if (match($0, /ip6 daddr [0-9a-f:]+/))
+			addr = substr($0, RSTART + 10, RLENGTH - 10)
+		sub(/.*tcp dport[ ]+/, "")
+		sub(/[ ](counter|accept|jump|drop|reject|return).*/, "")
+		gsub(/[{},]/, " ")
+		n = split($0, port, " ")
+		for (i = 1; i <= n; i++)
+			if (port[i] == "22" || port[i] == "80" || port[i] == "443") {
+				print addr
+				break
+			}
+	}' | sort -u | tr '\n' ' ')
+lan_stem=$(printf '%s' "$lan_gua" | cut -d: -f1-4)
+fwd_want=$(printf '%s\n' "${lan_stem}::bead" "${lan_stem}::cafe" | sort | tr '\n' ' ')
+if [ -z "$forward_wan" ]; then
+	fail "fw v6 passthru" "cannot read the forward_wan chain"
+elif [ "$fwd_hosts" = "$fwd_want" ]; then
+	pass "fw v6 passthru" "22/80/443 to cafe and bead"
+else
+	fail "fw v6 passthru" "expected cafe and bead only, found: ${fwd_hosts:--}"
+fi
 
 input_wan=$(nft list chain inet fw4 input_wan 2>/dev/null)
 case "$input_wan" in

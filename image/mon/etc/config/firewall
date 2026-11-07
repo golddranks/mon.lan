@@ -6,8 +6,10 @@
 # and masqueraded by the `wan` zone like any other forwarded traffic.
 #
 # Inbound:
-#   * IPv6 forwards TCP 22/80/443 to every LAN host, untouched (no NAT66).
-#     The router's own input stays closed.
+#   * IPv6 forwards TCP 22/80/443 to cafe and bead only, untouched (no NAT66).
+#     A GUA on a routed prefix is reachable from the internet the moment the
+#     host listens, so every other LAN host - ban included - is left out. The
+#     router's own input stays closed.
 #   * IPv4 terminates TCP 80/443 on the router, where nginx proxies to cafe
 #     (see /etc/nginx/stream.d); there are no IPv4 forwards to the LAN.
 
@@ -78,10 +80,21 @@ config rule
 	option target 'ACCEPT'
 
 config rule
-	option name 'Allow-IPv6-Web-SSH'
+	option name 'Allow-IPv6-Cafe'
 	option src 'wan'
 	option dest 'lan'
 	option proto 'tcp'
+	option dest_ip '@LAN_PREFIX@::cafe'
+	option dest_port '22 80 443'
+	option family 'ipv6'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-IPv6-Bead'
+	option src 'wan'
+	option dest 'lan'
+	option proto 'tcp'
+	option dest_ip '@LAN_PREFIX@::bead'
 	option dest_port '22 80 443'
 	option family 'ipv6'
 	option target 'ACCEPT'
