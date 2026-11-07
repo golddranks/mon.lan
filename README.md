@@ -89,6 +89,11 @@ contain baked credentials.
   `-n` makes the baked config authoritative. Host keys come from
   `secrets/<device>/`, so `known_hosts` stays valid; the root password is only for
   LuCI and the console.
+- `-n` also discards `/etc/acme`, so every flash would issue a new Let's
+  Encrypt certificate, and the limit is five per 168 hours for the same names.
+  `build.sh` therefore restores `secrets/<device>/acme.tar` when it exists;
+  refresh it after a renewal:
+  `ssh root@mon 'cd / && tar -czf - etc/acme etc/ssl/nginx' > secrets/mon/acme.tar`
 - mon's first install needs the factory image or u-boot recovery: a non-empty
   `/etc/config/network` and `/etc/config/system` make `/bin/config_generate`
   exit early, and `/etc/uci-defaults/*` runs once.

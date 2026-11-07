@@ -180,6 +180,18 @@ if [ -f "${PROBE_KEY}" ]; then
 	esac
 fi
 
+# --- Let's Encrypt state ----------------------------------------------------
+# `sysupgrade -n` wipes /etc/acme and the deployed certificate, so the box treats
+# every flash as a cold start and issues again - and Let's Encrypt allows five
+# certificates per 168 hours for the same set of names, which a day of flashing
+# exhausts. With a snapshot present the image serves a valid certificate from the
+# first boot and `acme renew` finds nothing due, so no issuance is spent. Refresh
+# the tarball after a renewal (see README).
+ACME_TAR="${REPO_DIR}/secrets/${DEVICE}/acme.tar"
+if [ -f "${ACME_TAR}" ]; then
+	tar -C "${FILES_DIR}" -xf "${ACME_TAR}"
+fi
+
 # --- build -----------------------------------------------------------------
 cd "${BUILD_DIR}/${IB_NAME}"
 make image \
