@@ -102,6 +102,10 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   zone's forward policy never sees it; `option isolate '1'` drops those frames at
   the AP. A wired port in the same bridge would need bridge-port isolation
   instead.
+- **A device can require the gateway to answer ping.** The doorbell sent
+  nothing but echo requests to 10.10.1.1 and retried forever; a zone that
+  rejects input reads to it as "cannot find the router". One echo-request rule
+  and it went on to its NTP and cloud lookups.
 - **A device with IPv6 is not a device that uses it.** Switch 2 autoconfigured a
   GUA and a ULA from the RAs, ran DAD on both, then never sent a packet from
   either: its network test wants a DHCPv4 lease, and without one it throws the

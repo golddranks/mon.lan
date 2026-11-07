@@ -187,3 +187,13 @@ config rule
 	option proto 'tcpudp'
 	option dest_port '53'
 	option target 'ACCEPT'
+
+# A device that pings its gateway before it will look for its cloud reads a
+# rejected gateway as "no router": the doorbell retried echo requests and
+# nothing else until this answered.
+config rule
+	option name 'Allow-Jail-Ping'
+	option src 'iot'
+	option proto 'icmp'
+	option icmp_type 'echo-request'
+	option target 'ACCEPT'
