@@ -2,9 +2,10 @@
 # Regression checks for the invariants this repo's mon configuration is built
 # around.
 #
-# The expectations are the constants below, not a reading of the running
-# config: if the design changes, this file has to change with it, and a stale
-# copy here will report FAIL with confidence.
+# Expectations are hard-coded below. Deployment values - the ULA prefix, the LAN
+# prefix - are read from uci instead, because they are operator data and not
+# invariants. If the design changes, this file has to change with it, and a
+# stale copy here will report FAIL with confidence.
 #
 # Not covered: ACME renewal itself (only the certificate it produced is
 # checked), cafe's own services beyond a TCP handshake, and the NAT64 datapath
@@ -16,9 +17,11 @@ WAN_DEV="eth1"
 LAN_DEV="br-lan"
 MON_NAME="mon.drasa.eu"
 WEB_NAME="webshare.drasa.eu"
-ULA="fd42:6d6f:6e00::1"
-BAN_ULA="fd42:6d6f:6e00::2"
-CAFE_ULA="fd42:6d6f:6e00::cafe"
+ula_stem=$(uci -q get network.globals.ula_prefix | sed 's|::/[0-9]*$||')
+ULA="$ula_stem::1"
+BAN_ULA="$ula_stem::2"
+CAFE_ULA="$ula_stem::cafe"
+BEAD_ULA="$ula_stem::bead"
 POOL6="64:ff9b::/96"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
@@ -35,6 +38,9 @@ fail() {
 }
 info() { printf '[info] %-20s %s\n' "$1" "$2"; }
 skip() { printf '[skip] %-20s %s\n' "$1" "$2"; }
+
+[ -n "$ula_stem" ] ||
+	fail "ula prefix" "network.globals.ula_prefix is unset; ULA checks are meaningless"
 
 # Answers for a name, one per line; the resolver's own "Address: x:53" dropped.
 # $3 is an optional query type (A, AAAA).
@@ -64,8 +70,6 @@ pd_addr=$(printf '%s' "$wan6_status" |
 	jsonfilter -e '@["ipv6-prefix"][0].address' 2>/dev/null)
 pd_mask=$(printf '%s' "$wan6_status" |
 	jsonfilter -e '@["ipv6-prefix"][0].mask' 2>/dev/null)
-# The /56 the LAN lives in, without the trailing "::" (e.g. 2405:1200:542:5f00)
-pd_stem=$(printf '%s' "$pd_addr" | sed 's/::$//')
 
 lan6=$(ip -6 -o addr show dev "$LAN_DEV" scope global 2>/dev/null |
 	sed -n 's/.* inet6 \([0-9a-fA-F:]*\)\/.*/\1/p')
@@ -108,23 +112,25 @@ case " $lan6_list " in
 *) fail "lan ula" "expected $ULA on $LAN_DEV, have: $lan6_list" ;;
 esac
 
-lan_guas=$(printf '%s\n' "$lan6" | grep -v '^fd')
-# A churning PD can leave more than one GUA on the LAN. The check is that one of
-# them is inside the current delegation, and the egress probe should use that
-# one; otherwise fall back to the first for the probe's sake.
-lan_gua_inpd=
-for g in $lan_guas; do
-	[ -n "$pd_stem" ] &&
-		[ "$(printf '%s' "$g" | cut -d: -f1-4)" = "$pd_stem" ] &&
-		lan_gua_inpd=$g && break
-done
-lan_gua=${lan_gua_inpd:-$(printf '%s\n' "$lan_guas" | head -n 1)}
-if [ -z "$lan_guas" ]; then
-	fail "lan gua" "no global unicast address on $LAN_DEV"
-elif [ -n "$lan_gua_inpd" ]; then
-	pass "lan gua" "$lan_gua_inpd"
+lan_gua=$(uci -q get network.lan.ip6addr | tr ' ' '\n' |
+	sed 's|/.*||' | grep -v "^${ula_stem}" | head -n 1)
+
+if [ -z "$lan_gua" ]; then
+	fail "lan gua" "no LAN prefix in network.lan.ip6addr"
+elif ! printf '%s\n' "$lan6" | grep -qxF "$lan_gua"; then
+	fail "lan gua" "configured $lan_gua is not on $LAN_DEV"
 else
-	fail "lan gua" "$(printf '%s' "$lan_guas" | tr '\n' ' ') is not inside $pd_addr/$pd_mask"
+	pass "lan gua" "$lan_gua"
+fi
+
+probe6="2606:4700:4700::1111"
+
+if [ -z "$lan_gua" ]; then
+	skip "lan route" "no LAN GUA to route"
+elif ip -6 route get "$probe6" from "$lan_gua" >/dev/null 2>&1; then
+	pass "lan route" "$lan_gua"
+else
+	fail "lan route" "no default route matches source $lan_gua"
 fi
 
 # --- the prefix is actually routed upstream ---------------------------------
@@ -133,7 +139,6 @@ fi
 # above stayed green. Ping out sourced from the LAN GUA: same next hop, but the
 # source is what an ISP filters on. The WAN-sourced probe is the control, so a
 # dead uplink is reported as such instead of as a bad prefix.
-probe6="2606:4700:4700::1111"
 if [ -z "$lan_gua" ] || [ -z "$wan6_addr" ]; then
 	skip "lan-sourced egress" "need both a LAN GUA and a WAN IPv6 address"
 elif ! ping6 -c 1 -W 2 -I "$wan6_addr" "$probe6" >/dev/null 2>&1; then
@@ -165,7 +170,9 @@ else
 	fail "dns64" "no synthesised AAAA from the local resolver"
 fi
 
-for pair in "$MON_NAME|$ULA" "ban.lan|$BAN_ULA" "ban.drasa.eu|$BAN_ULA"; do
+for pair in "$MON_NAME|$ULA" "ban.lan|$BAN_ULA" "ban.drasa.eu|$BAN_ULA" \
+	"bead.lan|$BEAD_ULA" "bead.drasa.eu|$BEAD_ULA" \
+	"llm.drasa.eu|$BEAD_ULA"; do
 	name=${pair%|*}
 	want=${pair#*|}
 	answers=$(dns_answers 127.0.0.1 "$name")
@@ -184,6 +191,12 @@ if ping6 -c 1 -W 1 "$BAN_ULA" >/dev/null 2>&1; then
 	pass "ban reachable" "$BAN_ULA"
 else
 	fail "ban reachable" "no echo reply from $BAN_ULA"
+fi
+
+if ping6 -c 1 -W 1 "$BEAD_ULA" >/dev/null 2>&1; then
+	pass "bead reachable" "$BEAD_ULA"
+else
+	fail "bead reachable" "no echo reply from $BEAD_ULA"
 fi
 
 # usteer trades node and station state with the other AP over the LAN, over IPv6.
@@ -298,12 +311,23 @@ case "$input_wan" in
 *) fail "fw v4 web" "no ipv4 accept for 80/443; nginx cannot be reached" ;;
 esac
 
-case "$input_wan" in
-*"ipv6 tcp dport { 80, 443 }"*)
-	fail "fw v6 input" "80/443 accepted from WAN; LuCI is exposed"
-	;;
-*) pass "fw v6 input" "no 80/443 from WAN" ;;
-esac
+input_open=$(printf '%s\n' "$input_wan" | awk '
+	/comment/ { sub(/comment ".*/, "") }
+	/nfproto ipv4/ { next }
+	/accept/ && /tcp dport/ {
+			sub(/.*tcp dport[ ]+/, "")
+			sub(/[ ](counter|accept|jump|drop|reject|return).*/, "")
+			gsub(/[{},]/, " ")
+			print
+	}' | tr ' ' '\n' | grep -xE '22|80|443' | sort -un | tr '\n' ' ')
+
+if [ -n "$input_open" ]; then
+	fail "fw v6 input" "accepted from WAN: $input_open"
+elif [ -z "$input_wan" ]; then
+	fail "fw v6 input" "cannot read the wan input chain"
+else
+	pass "fw v6 input" "no 22/80/443 accepted from WAN"
+fi
 
 # --- services ---------------------------------------------------------------
 for svc in odhcpd dnsmasq unbound nginx uwsgi usteer; do
@@ -405,17 +429,25 @@ for section in $(uci -q show ddns |
 	sed -n 's/^ddns\.\([^.=]*\)\.lookup_host=.*/\1/p'); do
 	host=$(uci -q get "ddns.$section.lookup_host")
 	if [ "$(uci -q get "ddns.$section.use_ipv6")" = "1" ]; then
-		expected="$pd_stem::cafe"
+		# The AAAA is the LAN /64 plus the host id given to the section's
+		# ip_script (`lan_suffix.sh bead` publishes ::bead).
+		suffix=$(uci -q get "ddns.$section.ip_script" | awk '{ print $NF }')
+		expected=
+		[ -n "$suffix" ] &&
+			expected="$(printf '%s' "${lan_gua:-}" | cut -d: -f1-4)::$suffix"
 		qtype=AAAA
 	else
+		suffix=
 		expected="$wan4"
 		qtype=A
 	fi
 
-	if [ -z "$expected" ] || [ "$expected" = "::cafe" ]; then
-		skip "ddns $section" "missing WAN IPv4 or delegated prefix"
+	case "$expected" in
+	'' | ::*)
+		skip "ddns $section" "missing WAN IPv4, LAN GUA or host id"
 		continue
-	fi
+		;;
+	esac
 
 	answers=$(dns_answers "$ddns_resolver" "$host" "$qtype")
 	case "

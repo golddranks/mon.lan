@@ -11,4 +11,4 @@ config system
 config timeserver 'ntp'
 	option enabled '1'
 	option enable_server '0'
-	list server 'fd42:6d6f:6e00::1'
+	list server '@ULA@::1'

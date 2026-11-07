@@ -34,21 +34,32 @@ config dnsmasq
 	# ban is the access point in the other room; it has a static ULA, so the
 	# name does not depend on a lease or on the delegated prefix. It gets both
 	# the LAN-style name and a drasa.eu name, the latter only for reading.
+	# bead is a Raspberry Pi; llm.drasa.eu is its LLM vhost.
 	option address_as_local '1'
-	list address '/mon.drasa.eu/fd42:6d6f:6e00::1'
-	list address '/mon.lan/fd42:6d6f:6e00::1'
-	list address '/ban.lan/fd42:6d6f:6e00::2'
-	list address '/ban.drasa.eu/fd42:6d6f:6e00::2'
+	list address '/mon.drasa.eu/@ULA@::1'
+	list address '/mon.lan/@ULA@::1'
+	list address '/ban.lan/@ULA@::2'
+	list address '/ban.drasa.eu/@ULA@::2'
+	list address '/bead.lan/@ULA@::bead'
+	list address '/bead.drasa.eu/@ULA@::bead'
+	list address '/llm.drasa.eu/@ULA@::bead'
 
 # cafe (the server) gets a static DHCPv6 lease: odhcpd matches this DUID and
-# composes the pinned host id onto the active prefix, so the GUA is
-# <delegated /64>::cafe and the ULA fd42:6d6f:6e00::cafe. The AAAA records in
-# /etc/config/ddns publish the GUA. Without the pin odhcpd hands out an address
-# hashed from the DUID (::c04 today), which is stable but meaningless to read.
+# composes cafe's host id onto the LAN prefix, so the GUA is <LAN /64>::cafe and
+# the ULA @ULA@::cafe. The AAAA records in /etc/config/ddns publish the GUA.
+# Without the host id odhcpd hands out an address hashed from the DUID (::c04
+# today), which is stable but meaningless to read.
 config host
 	option name 'cafe'
 	option duid '0001000130d93a1e082e5f1bc5f0'
 	option hostid 'cafe'
+
+# bead gets the same treatment: its host id is spelled out so the address
+# survives both the delegation churn and a DUID change.
+config host
+	option name 'bead'
+	option duid '00010001c792bc8adca63208dbfe'
+	option hostid 'bead'
 
 config dhcp 'lan'
 	option interface 'lan'

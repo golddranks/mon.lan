@@ -2,8 +2,8 @@
 # Mail when the set of failing netdiag checks changes.
 #
 # Labels listed in /root/mon-watch.expected (one per line) are ignored. That
-# file is for temporary known states - the LAN prefix pin, for example - and is
-# deliberately not part of the image.
+# file is for temporary known states - while the LAN prefix is wrong, for
+# example - and is deliberately not part of the image.
 set -u
 
 NETDIAG="${NETDIAG:-/usr/bin/netdiag}"

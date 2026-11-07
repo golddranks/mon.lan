@@ -1,6 +1,5 @@
-# SSH on the default port, restricted to the LAN, key-only (see
-# /etc/dropbear/authorized_keys). PasswordAuth off disables password logins
-# for every user, root included; LuCI still authenticates against /etc/shadow.
+# SSH on the default port, key-only (see /etc/dropbear/authorized_keys).
+# PasswordAuth off disables password logins for every user, root included; LuCI
+# still authenticates against /etc/shadow.
 config dropbear
 	option PasswordAuth 'off'
-	option Interface 'lan'

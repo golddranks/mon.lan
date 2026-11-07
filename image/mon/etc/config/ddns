@@ -1,10 +1,10 @@
-# Dynamic DNS (Gandi LiveDNS) for the names served by cafe.
+# Dynamic DNS (Gandi LiveDNS) for the names published from the LAN.
 #
-# Each name gets an A record for the WAN IPv4 (inbound IPv4 terminates on the
-# router's nginx stream proxy) and an AAAA for cafe's GUA. odhcpd pins cafe's
-# host id with a static DHCPv6 lease (`duid` plus `hostid cafe` in
-# /etc/config/dhcp), so the AAAA is the current LAN /64 plus `::cafe`;
-# /usr/lib/ddns/lan_suffix.sh prints it.
+# Names served by cafe get an A record for the WAN IPv4 (inbound IPv4 terminates
+# on the router's nginx stream proxy) and an AAAA for cafe's GUA. Hosts with a
+# static DHCPv6 lease get an AAAA only. odhcpd takes the host id from that lease
+# (`duid` plus `hostid`, see /etc/config/dhcp), so the AAAA is the current LAN
+# /64 plus the host id; /usr/lib/ddns/lan_suffix.sh prints it.
 #
 # `ip_source network` follows DHCP/PD changes; the AAAA script follows the
 # delegated prefix. The provider script in /usr/lib/ddns is overridden by the
@@ -119,4 +119,31 @@ config service 'cafe_aaaa'
 	option use_ipv6 '1'
 	option ip_source 'script'
 	option ip_script '/usr/lib/ddns/lan_suffix.sh cafe'
+	option use_syslog '2'
+
+# bead has no A record: it is reachable only over IPv6, which is what its
+# certificate and its :80 ACME challenge are validated over.
+config service 'bead_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'bead.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'bead'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'script'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh bead'
+	option use_syslog '2'
+
+# The LLM has its own name on the same host, with its own certificate.
+config service 'llm_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'llm.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'llm'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'script'
+	option ip_script '/usr/lib/ddns/lan_suffix.sh bead'
 	option use_syslog '2'

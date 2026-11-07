@@ -20,3 +20,8 @@ luci-ssl
 wpad-mbedtls
 # Steering and neighbour-report sync between the APs (see /etc/config/usteer).
 usteer
+
+# --- IPv6 SLAAC host id ---
+# busybox ip has no 'token' subcommand, and /etc/rc.local sets one so ban's SLAAC
+# addresses use the ULA's host id instead of EUI-64.
+ip-full

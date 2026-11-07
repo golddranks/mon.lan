@@ -37,4 +37,4 @@ config device
 config interface 'lan'
 	option device 'br-lan'
 	option proto 'static'
-	list ip6addr 'fd42:6d6f:6e00::2/64'
+	list ip6addr '@ULA@::2/64'

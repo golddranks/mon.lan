@@ -1,0 +1,5 @@
+#!/bin/sh
+# ban's SLAAC addresses take the ULA's host id (::2) instead of EUI-64; the
+# token only applies to addresses created after this runs.
+ip token set ::2 dev br-lan
+exit 0

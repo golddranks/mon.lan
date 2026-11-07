@@ -45,6 +45,7 @@ BUILD_DIR="/var/tmp/monlan-build/${DEVICE}"
 OUT_DIR="${SCRIPT_DIR}/.work/${DEVICE}"
 
 SECRETS="${REPO_DIR}/secrets.sed"
+VARS="${SCRIPT_DIR}/vars.sed"
 
 # SSH authorized_keys live in a separate repo; fetch them at build time.
 PUBKEYS_URL="https://raw.githubusercontent.com/golddranks/pubkeys/main/authorized_keys_strict"
@@ -68,11 +69,11 @@ echo "${IB_SHA256}  ${IB_TAR}" | sha256sum -c -
 rm -rf "${IB_NAME}"
 tar --zstd -xf "${IB_TAR}"
 
-# --- render overlay (apply secrets.sed to every file in image/<device>/) ---
+# --- render overlay (substitute vars.sed and secrets.sed in every file) -----
 FILES_DIR="${BUILD_DIR}/files"
 rm -rf "${FILES_DIR}"
 cp -a "${REPO_DIR}/image/${DEVICE}" "${FILES_DIR}"
-find "${FILES_DIR}" -type f -exec sed -i -f "${SECRETS}" {} +
+find "${FILES_DIR}" -type f -exec sed -i -f "${VARS}" -f "${SECRETS}" {} +
 
 # git records only the executable bit, so files carried in the overlay arrive
 # as 0644. crond would still read the crontab, and mon-send would still read the
@@ -101,14 +102,14 @@ printf '%s\n' "${ROOT_HASH}" |
 	exit 1
 }
 
-# Any '@TOKEN@' left in the rendered overlay means a secret was never
+# Any '@TOKEN@' left in the rendered overlay means a value was never
 # substituted. Baking a placeholder is silent and dangerous (a literal
 # '@WIFI_PW@' passphrase, an '@GANDI_API_KEY@' that always 401s), so refuse.
 UNSUBSTITUTED=$(grep -rlE '@[A-Z_][A-Z_0-9]*@' "${FILES_DIR}" 2>/dev/null) || true
 if [ -n "${UNSUBSTITUTED}" ]; then
-	echo "ERROR: unsubstituted secret token(s) in the rendered overlay:" >&2
+	echo "ERROR: unsubstituted token(s) in the rendered overlay:" >&2
 	printf '%s\n' "${UNSUBSTITUTED}" >&2
-	echo "       Fill them in in secrets.sed (see secrets.sed.example)." >&2
+	echo "       Fill them in in secrets.sed or vars.sed." >&2
 	exit 1
 fi
 
