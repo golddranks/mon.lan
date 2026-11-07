@@ -36,8 +36,21 @@ config zone
 	option masq '1'
 	option mtu_fix '1'
 
+# The jail: IPv4-only, NATed to the WAN, and unable to reach the LAN - the
+# forwarding policy rejects it, so only DHCP and DNS to the router are allowed.
+config zone
+	option name 'iot'
+	list network 'iot'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+
 config forwarding
 	option src 'lan'
+	option dest 'wan'
+
+config forwarding
+	option src 'iot'
 	option dest 'wan'
 
 config rule
@@ -159,4 +172,18 @@ config rule
 	option dest 'lan'
 	option dest_port '500'
 	option proto 'udp'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Jail-DHCP'
+	option src 'iot'
+	option proto 'udp'
+	option dest_port '67'
+	option target 'ACCEPT'
+
+config rule
+	option name 'Allow-Jail-DNS'
+	option src 'iot'
+	option proto 'tcpudp'
+	option dest_port '53'
 	option target 'ACCEPT'

@@ -43,6 +43,19 @@ config interface 'lan'
 	list ip6addr '@ULA@::1/64'
 	list ip6addr '@LAN_PREFIX@::1/64'
 
+config device
+	option name 'br-iot'
+	option type 'bridge'
+
+# IPv4-only by design: the jail exists for devices that cannot use this LAN's
+# addressing, so it gets an address and NAT and nothing else. No ports - only
+# the jail SSID on radio0 joins it.
+config interface 'iot'
+	option device 'br-iot'
+	option proto 'static'
+	option ipaddr '10.10.1.1'
+	option netmask '255.255.255.0'
+
 config interface 'wan'
 	option device 'eth1'
 	option proto 'dhcp'

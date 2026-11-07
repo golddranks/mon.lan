@@ -95,8 +95,25 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   `pci0000:00/0000:00:00.0` and `platform/ahb/18100000.wmac`; with a bare
   `radio0`/`radio1` a duplicate takes the phy over.
 
+## The jail
+
+- **Client isolation is per BSS, and the firewall cannot help on a bridge.**
+  Traffic between two stations on the same bridge is switched, not routed, so the
+  zone's forward policy never sees it; `option isolate '1'` drops those frames at
+  the AP. A wired port in the same bridge would need bridge-port isolation
+  instead.
+- **A device with IPv6 is not a device that uses it.** Switch 2 autoconfigured a
+  GUA and a ULA from the RAs, ran DAD on both, then never sent a packet from
+  either: its network test wants a DHCPv4 lease, and without one it throws the
+  autoconf away and DISCOVERs again every 30 s. The jail exists for that class of
+  device.
+
 ## Method
 
+- **`sysupgrade -n` throws away `/etc/acme`, so every flash is a new issuance.**
+  Let's Encrypt allows 5 certificates per 168 h for the same set of names, so a
+  day of flashing left the box serving the image's self-signed placeholder until
+  the window rolled over. `acme renew` runs hourly and recovers by itself.
 - **A hotplug hook is not self-healing.** The adaptive `95-pin-lan` only fired on
   `wan6 ifup`, so it was neither sufficient nor simple. A user-run recipe plus a
   checker that measures beats code that guesses.

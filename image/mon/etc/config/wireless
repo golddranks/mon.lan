@@ -32,6 +32,20 @@ config wifi-iface 'default_radio0'
 	option ieee80211k '1'
 	option ieee80211v '1'
 
+# The jail: IPv4-only devices that the IPv6-only LAN cannot serve. 2.4 GHz only -
+# those devices are 2.4 GHz, and the 5 GHz radio stays for everything else. No
+# 802.11r/802.11k/v: nothing here roams, and the PSK is its own. `isolate` drops
+# station-to-station frames at the AP, which the firewall cannot do for a
+# switched bridge; DHCP, DNS and NAT keep working because the AP relays them.
+config wifi-iface 'jail_radio0'
+	option device 'radio0'
+	option network 'iot'
+	option mode 'ap'
+	option ssid 'SkeletorJail'
+	option encryption 'psk2'
+	option key '@IOT_WIFI_PW@'
+	option isolate '1'
+
 config wifi-device 'radio1'
 	option type 'mac80211'
 	option path 'platform/soc/18000000.wifi+1'

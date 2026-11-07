@@ -133,6 +133,24 @@ else
 	fail "lan route" "no default route matches source $lan_gua"
 fi
 
+# --- the jail ---------------------------------------------------------------
+# IPv4-only bridge for devices that cannot use IPv6. It needs its own address,
+# and must carry no global IPv6 address - one there would put jail devices on
+# the LAN's addressing while sitting in another zone.
+jail4=$(ip -4 -o addr show dev br-iot 2>/dev/null | awk '{ print $4 }')
+jail6=$(ip -6 -o addr show dev br-iot scope global 2>/dev/null |
+	sed -n 's/.* inet6 \([^/]*\)\/.*/\1/p')
+jail_iso=$(uci -q get wireless.jail_radio0.isolate)
+if [ -z "$jail4" ]; then
+	fail "jail" "br-iot has no IPv4 address"
+elif [ -n "$jail6" ]; then
+	fail "jail" "$jail6 is on br-iot; the jail must stay IPv4-only"
+elif [ "$jail_iso" != "1" ]; then
+	fail "jail" "client isolation is off; jail devices can reach each other"
+else
+	pass "jail" "$jail4, isolated, no IPv6"
+fi
+
 # --- the prefix is actually routed upstream ---------------------------------
 # Holding a delegation means only that netifd has one. J:COM has stopped
 # routing ours while the lease still looked valid for days, and every check
@@ -419,12 +437,21 @@ else
 	fail "wireless" "$radios_up radios up, expected 2"
 fi
 
-served_ssid=$(ubus call network.wireless status 2>/dev/null |
-	jsonfilter -e '@.*.interfaces[*].config.ssid' | sort -u | tr '\n' ' ')
-if [ -n "$want_ssid" ] && [ "$served_ssid" = "$want_ssid " ]; then
-	pass "ssid" "$want_ssid on both radios"
+want_ssid=$(uci -q get wireless.@wifi-iface[0].ssid)
+jail_ssid=$(uci -q get wireless.jail_radio0.ssid)
+wifi_status=$(ubus call network.wireless status 2>/dev/null)
+main_on=$(printf '%s' "$wifi_status" |
+	jsonfilter -e '@.*.interfaces[*].config.ssid' | grep -cxF "$want_ssid")
+jail_on=$(printf '%s' "$wifi_status" |
+	jsonfilter -e '@.*.interfaces[*].config.ssid' | grep -cxF "$jail_ssid")
+jail_on_24=$(printf '%s' "$wifi_status" |
+	jsonfilter -e '@.radio0.interfaces[*].config.ssid' | grep -cxF "$jail_ssid")
+# The main SSID on both radios; the jail on 2.4 GHz only, which is what keeps
+# it out of the 5 GHz airtime and out of ban, whose uplink cannot carry it.
+if [ "$main_on" = "2" ] && [ "$jail_on" = "1" ] && [ "$jail_on_24" = "1" ]; then
+	pass "ssid" "$want_ssid x2, $jail_ssid on radio0"
 else
-	fail "ssid" "expected '$want_ssid', serving: $served_ssid"
+	fail "ssid" "$want_ssid on $main_on radio(s), $jail_ssid on $jail_on ($jail_on_24 on radio0)"
 fi
 
 if [ "$(uci -q get system.ntp.enable_server)" = "1" ]; then
