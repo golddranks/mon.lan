@@ -6,8 +6,7 @@
 #
 # LAN is IPv6-only:
 #   * no IPv4 address on `lan`, and no DHCPv4 (see /etc/config/dhcp)
-#   * the GUA is set explicitly to a prefix J:COM routes, not taken from the
-#     delegation
+#   * the GUA is the first /64 of the delegation, so it follows the PD
 #   * a ULA gives stable internal addressing independent of the delegated prefix
 # IPv4 reachability from LAN hosts comes from NAT64 + DNS64; see
 # /etc/config/jool (translation) and /etc/config/unbound (synthesis).
@@ -39,9 +38,13 @@ config device
 config interface 'lan'
 	option device 'br-lan'
 	option proto 'static'
-	option ip6assign '0'
+	# Take the first /64 of the delegation. Pinning the subnet id keeps the LAN
+	# on one /64 if other subnets are added later; the rest of the /56 stays
+	# unassigned. The prefix is never configured by hand: a GUA the ISP has
+	# stopped routing is invisible to every check but a reachability probe.
+	option ip6assign '64'
+	option ip6hint '0'
 	list ip6addr '@ULA@::1/64'
-	list ip6addr '@LAN_PREFIX@::1/64'
 
 config device
 	option name 'br-iot'
@@ -65,9 +68,3 @@ config interface 'wan6'
 	option proto 'dhcpv6'
 	option reqaddress 'try'
 	option reqprefix '56'
-
-config route6 'lanroute'
-	option interface 'wan6'
-	option target '::/0'
-	option gateway 'fe80::217:10ff:feaa:caab'
-	option source '@LAN_PREFIX@::/64'

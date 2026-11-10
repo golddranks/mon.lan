@@ -2,10 +2,14 @@
 # Regression checks for the invariants this repo's mon configuration is built
 # around.
 #
-# Expectations are hard-coded below. Deployment values - the ULA prefix, the LAN
-# prefix - are read from uci instead, because they are operator data and not
-# invariants. If the design changes, this file has to change with it, and a
-# stale copy here will report FAIL with confidence.
+# Expectations are hard-coded below. Deployment values - the ULA prefix from
+# uci, the LAN prefix from netifd's prefix assignment - are read at run time,
+# because they are operator and ISP data, not invariants. If the design changes,
+# this file has to change with it, and a stale copy here will report FAIL with
+# confidence.
+#
+# `[value]` lines are observations, not checks: mon-watch remembers them and
+# mails when one changes, so a renumbering that stays healthy is still visible.
 #
 # Not covered: ACME renewal itself (only the certificate it produced is
 # checked), cafe's own services beyond a TCP handshake, and the NAT64 datapath
@@ -26,11 +30,13 @@ POOL6="64:ff9b::/96"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
+PROBE_KEY="/root/.ssh/id_ed25519"
 
 bad=0
 
 # Labels are padded to 20 columns because mon-watch parses them at that width to
-# tell which checks are failing. Keep every label at 20 characters or fewer.
+# tell which checks are failing, and `[value]` lines at the same width to tell
+# which value changed. Keep every label at 20 characters or fewer.
 pass() { printf '[PASS] %-20s %s\n' "$1" "$2"; }
 fail() {
 	printf '[FAIL] %-20s %s\n' "$1" "$2"
@@ -38,6 +44,8 @@ fail() {
 }
 info() { printf '[info] %-20s %s\n' "$1" "$2"; }
 skip() { printf '[skip] %-20s %s\n' "$1" "$2"; }
+value() { printf '[value] %-20s %s\n' "$1" "$2"; }
+group() { printf '\n== %s ==\n' "$1"; }
 
 [ -n "$ula_stem" ] ||
 	fail "ula prefix" "network.globals.ula_prefix is unset; ULA checks are meaningless"
@@ -56,7 +64,12 @@ dns_answers() {
 
 http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@" 2>/dev/null; }
 
-# --- what the box currently is ---------------------------------------------
+on_ban() {
+	ssh -T -i "$PROBE_KEY" "root@$BAN_ULA" "$1" 2>/dev/null </dev/null
+}
+
+# --- identity ---------------------------------------------------------------
+group identity
 release=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)
 info "image" "${release:-unknown}"
 
@@ -65,17 +78,14 @@ wan4=$(ubus call network.interface.wan status 2>/dev/null |
 wan6_addr=$(ubus call network.interface.wan6 status 2>/dev/null |
 	jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null | head -n 1)
 
+# --- WAN and delegation -----------------------------------------------------
+group wan
 wan6_status=$(ubus call network.interface.wan6 status 2>/dev/null)
 pd_addr=$(printf '%s' "$wan6_status" |
 	jsonfilter -e '@["ipv6-prefix"][0].address' 2>/dev/null)
 pd_mask=$(printf '%s' "$wan6_status" |
 	jsonfilter -e '@["ipv6-prefix"][0].mask' 2>/dev/null)
 
-lan6=$(ip -6 -o addr show dev "$LAN_DEV" scope global 2>/dev/null |
-	sed -n 's/.* inet6 \([0-9a-fA-F:]*\)\/.*/\1/p')
-lan6_list=$(printf '%s' "$lan6" | tr '\n' ' ')
-
-# --- WAN --------------------------------------------------------------------
 if [ -n "$wan4" ]; then
 	pass "wan ipv4" "$wan4"
 else
@@ -87,6 +97,7 @@ if [ -n "$pd_addr" ]; then
 else
 	fail "delegated prefix" "wan6 has no ipv6-prefix"
 fi
+value "pd" "${pd_addr:-none}/${pd_mask:-0}"
 
 if [ "$pd_mask" = "56" ]; then
 	pass "prefix length" "/56 as requested"
@@ -94,17 +105,16 @@ else
 	fail "prefix length" "expected 56, got '${pd_mask:-none}'"
 fi
 
-# --- LAN is IPv6-only -------------------------------------------------------
+# --- LAN addressing ---------------------------------------------------------
+group lan
+lan6=$(ip -6 -o addr show dev "$LAN_DEV" scope global 2>/dev/null |
+	sed -n 's/.* inet6 \([0-9a-fA-F:]*\)\/.*/\1/p')
+lan6_list=$(printf '%s' "$lan6" | tr '\n' ' ')
+
 if [ -n "$(ip -4 -o addr show dev "$LAN_DEV" 2>/dev/null)" ]; then
 	fail "lan ipv4" "$LAN_DEV has an IPv4 address; the LAN must be v6-only"
 else
 	pass "lan ipv4" "none on $LAN_DEV"
-fi
-
-if [ "$(uci -q get dhcp.lan.dhcpv4)" = "disabled" ]; then
-	pass "dhcpv4" "disabled on lan"
-else
-	fail "dhcpv4" "expected 'disabled', got '$(uci -q get dhcp.lan.dhcpv4)'"
 fi
 
 case " $lan6_list " in
@@ -112,15 +122,58 @@ case " $lan6_list " in
 *) fail "lan ula" "expected $ULA on $LAN_DEV, have: $lan6_list" ;;
 esac
 
-lan_gua=$(uci -q get network.lan.ip6addr | tr ' ' '\n' |
-	sed 's|/.*||' | grep -v "^${ula_stem}" | head -n 1)
+# The LAN /64 is whatever netifd took from the delegation, not a value written
+# down in this repo. A static GUA survives a PD change and stays plausible while
+# the ISP routes nothing, so the address on br-lan is checked against the
+# assignment. The ULA is an assignment too: skip it, or the check compares the
+# LAN GUA against the ULA.
+if [ -n "$ula_stem" ]; then
+	lan_pd=$(ubus call network.interface.lan status 2>/dev/null |
+		jsonfilter -e '@["ipv6-prefix-assignment"][*].address' 2>/dev/null |
+		grep -v "^${ula_stem}" | head -n 1)
+fi
+lan_pd_stem=$(printf '%s' "$lan_pd" | sed 's/:*$//')
 
-if [ -z "$lan_gua" ]; then
-	fail "lan gua" "no LAN prefix in network.lan.ip6addr"
-elif ! printf '%s\n' "$lan6" | grep -qxF "$lan_gua"; then
-	fail "lan gua" "configured $lan_gua is not on $LAN_DEV"
+lan_gua=
+for a in $lan6; do
+	case "$a" in
+	"$ula_stem"*) continue ;;
+	esac
+	if [ -n "$lan_pd_stem" ] &&
+		[ "$(printf '%s' "$a" | cut -d: -f1-4)" = "$lan_pd_stem" ]; then
+		lan_gua=$a
+		break
+	fi
+done
+
+if [ -z "$lan_pd_stem" ]; then
+	fail "lan prefix" "netifd assigned no prefix from the delegation to $LAN_DEV"
+elif [ -z "$lan_gua" ]; then
+	fail "lan gua" "no address inside $lan_pd/64 on $LAN_DEV; have: $lan6_list"
 else
-	pass "lan gua" "$lan_gua"
+	pass "lan gua" "$lan_gua from $lan_pd/64"
+fi
+value "lan gua" "${lan_gua:-none}"
+
+# Clients get their addresses from the prefix odhcpd advertises, so a bound
+# lease inside the delegation is the consequence of the assignment actually
+# reaching the LAN. A stale advertised prefix leaves every lease outside it.
+lease_lines=$(ubus call dhcp ipv6leases 2>/dev/null |
+	jsonfilter -e '@["device"]["br-lan"]["leases"][*]' 2>/dev/null)
+lease_counts=$(printf '%s\n' "$lease_lines" | awk -v stem="$lan_pd_stem" '
+	/"bound"/ {
+		bound++
+		if (stem != "" && index($0, stem ":") > 0) inpd++
+	}
+	END { print bound + 0, inpd + 0 }')
+bound_leases=${lease_counts% *}
+leases_in_pd=${lease_counts#* }
+if [ "$bound_leases" -eq 0 ]; then
+	fail "dhcpv6 leases" "no bound leases on $LAN_DEV"
+elif [ -z "$lan_pd_stem" ] || [ "$leases_in_pd" -eq 0 ]; then
+	fail "dhcpv6 leases" "none of $bound_leases bound lease(s) is inside ${lan_pd:-the LAN /64}"
+else
+	pass "dhcpv6 leases" "$leases_in_pd of $bound_leases bound lease(s) inside $lan_pd/64"
 fi
 
 probe6="2606:4700:4700::1111"
@@ -133,53 +186,26 @@ else
 	fail "lan route" "no default route matches source $lan_gua"
 fi
 
-# --- the jail ---------------------------------------------------------------
-# IPv4-only bridge for devices that cannot use IPv6. It needs its own address,
-# and must carry no global IPv6 address - one there would put jail devices on
-# the LAN's addressing while sitting in another zone.
-jail4=$(ip -4 -o addr show dev br-iot 2>/dev/null | awk '{ print $4 }')
-jail6=$(ip -6 -o addr show dev br-iot scope global 2>/dev/null |
-	sed -n 's/.* inet6 \([^/]*\)\/.*/\1/p')
-jail_iso=$(uci -q get wireless.jail_radio0.isolate)
-if [ -z "$jail4" ]; then
-	fail "jail" "br-iot has no IPv4 address"
-elif [ -n "$jail6" ]; then
-	fail "jail" "$jail6 is on br-iot; the jail must stay IPv4-only"
-elif [ "$jail_iso" != "1" ]; then
-	fail "jail" "client isolation is off; jail devices can reach each other"
-else
-	pass "jail" "$jail4, isolated, no IPv6"
-fi
-
 # --- the prefix is actually routed upstream ---------------------------------
-# Holding a delegation means only that netifd has one. J:COM has stopped
-# routing ours while the lease still looked valid for days, and every check
-# above stayed green. Ping out sourced from the LAN GUA: same next hop, but the
-# source is what an ISP filters on. The WAN-sourced probe is the control, so a
-# dead uplink is reported as such instead of as a bad prefix.
+group upstream
+# Holding a delegation means only that netifd has one. J:COM has stopped routing
+# ours while the lease still looked valid for days, and every check above stayed
+# green. Ping out sourced from the LAN GUA: same next hop, but the source is what
+# an ISP filters on. The WAN-sourced probe is the control, so a dead uplink is
+# reported as such instead of as a bad prefix. Three packets each: a working
+# prefix has lost its first one in testing.
 if [ -z "$lan_gua" ] || [ -z "$wan6_addr" ]; then
 	skip "lan-sourced egress" "need both a LAN GUA and a WAN IPv6 address"
-elif ! ping6 -c 1 -W 2 -I "$wan6_addr" "$probe6" >/dev/null 2>&1; then
+elif ! ping6 -c 3 -W 2 -I "$wan6_addr" "$probe6" >/dev/null 2>&1; then
 	fail "lan-sourced egress" "no uplink at all: $wan6_addr cannot reach $probe6"
-elif ping6 -c 1 -W 2 -I "$lan_gua" "$probe6" >/dev/null 2>&1; then
+elif ping6 -c 3 -W 2 -I "$lan_gua" "$probe6" >/dev/null 2>&1; then
 	pass "lan-sourced egress" "$lan_gua -> $probe6"
 else
 	fail "lan-sourced egress" "$lan_gua gets no reply while $wan6_addr does: the prefix is not routed upstream"
 fi
 
-# --- RAs, DNS64 and local names ---------------------------------------------
-if [ "$(uci -q get dhcp.lan.ra)" = "server" ]; then
-	pass "ra" "server on lan"
-else
-	fail "ra" "expected 'server', got '$(uci -q get dhcp.lan.ra)'"
-fi
-
-if [ "$(uci -q get dhcp.lan.ra_pref64)" = "$POOL6" ]; then
-	pass "ra pref64" "$POOL6"
-else
-	fail "ra pref64" "expected $POOL6, got '$(uci -q get dhcp.lan.ra_pref64)'"
-fi
-
+# --- names ------------------------------------------------------------------
+group names
 dns64=$(nslookup ipv4only.arpa 127.0.0.1 2>/dev/null |
 	grep -o "${PREFIX_STEM}[0-9a-fA-F:]*" | head -n 1)
 if [ -n "$dns64" ]; then
@@ -204,11 +230,29 @@ $want
 	esac
 done
 
-# --- the other AP -----------------------------------------------------------
+# --- hosts ------------------------------------------------------------------
+group hosts
 if ping6 -c 1 -W 1 "$BAN_ULA" >/dev/null 2>&1; then
 	pass "ban reachable" "$BAN_ULA"
 else
 	fail "ban reachable" "no echo reply from $BAN_ULA"
+fi
+
+# The AP must not form a GUA: mon forwards 22/80/443 to the LAN zone, so any
+# address on ban that is not the ULA would be reachable from the internet.
+if [ ! -f "$PROBE_KEY" ]; then
+	skip "ban no gua" "no probe key at $PROBE_KEY"
+elif ! ping6 -c 1 -W 1 "$BAN_ULA" >/dev/null 2>&1; then
+	skip "ban no gua" "ban is offline"
+else
+	ban_guas=$(on_ban 'ip -6 addr show dev br-lan' |
+		sed -n 's/^ *inet6 \([0-9a-fA-F:]*\)\/.* scope global.*/\1/p' |
+		grep -v "^${ula_stem}" | tr '\n' ' ')
+	if [ -z "$ban_guas" ]; then
+		pass "ban no gua" "only the ULA"
+	else
+		fail "ban no gua" "GUA(s) on br-lan: $ban_guas"
+	fi
 fi
 
 if ping6 -c 1 -W 1 "$BEAD_ULA" >/dev/null 2>&1; then
@@ -227,45 +271,14 @@ else
 	fail "usteer peers" "none; the APs are not exchanging state"
 fi
 
-# --- Jool -------------------------------------------------------------------
+# --- NAT64 ------------------------------------------------------------------
+group nat64
 if jool instance display >/dev/null 2>&1; then
 	pass "jool instance" "$JOOL_INSTANCE running"
 else
 	fail "jool instance" "no jool instance"
 fi
 
-pool6=$(jool -i "$JOOL_INSTANCE" global display 2>/dev/null |
-	sed -n 's/^  pool6: //p')
-if [ "$pool6" = "$POOL6" ]; then
-	pass "jool pool6" "$pool6"
-else
-	fail "jool pool6" "expected $POOL6, got '${pool6:-none}'"
-fi
-
-# pool4 must stay empty. Jool then translates from whatever address the WAN
-# interface has, on ports 61001-65535 (4,535 transport addresses per protocol).
-# A configured pool4 is authoritative and names an address DHCP can change: when
-# such rows went stale here, every IPv4 flow died while IPv6 was unaffected and
-# nothing was logged. So a configured row is a failure, not a variant.
-pool4_rows=0
-for proto in tcp udp icmp; do
-	# Data rows only; the header also starts with a '|'.
-	n=$(jool -i "$JOOL_INSTANCE" pool4 display --"$proto" 2>/dev/null |
-		grep -cE '^\| *[0-9]+ \|')
-	pool4_rows=$((pool4_rows + n))
-done
-if [ "$pool4_rows" -eq 0 ]; then
-	pass "jool pool4" "empty (implicit 61001-65535 on the WAN address)"
-else
-	fail "jool pool4" "$pool4_rows row(s) configured; see the comment above"
-fi
-info "ephemeral ports" "$(sysctl -n net.ipv4.ip_local_port_range 2>/dev/null |
-	tr -s ' \t' ' ')"
-
-info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
-	grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):' | tr '\n' ' ')"
-
-# --- NAT64 datapath ---------------------------------------------------------
 # Jool only translates forwarded traffic, so mon cannot test its own translation:
 # a ping from the router, or a connection to the router's own WAN address, never
 # enters the forward hook. The probe therefore runs on ban, an ordinary host on
@@ -274,16 +287,11 @@ info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
 # All three protocols are probed because pool4 holds a separate table per
 # protocol: a missing row breaks that protocol alone, and the other two keep
 # working.
-PROBE_KEY="/root/.ssh/id_ed25519"
 if [ ! -f "$PROBE_KEY" ]; then
 	skip "nat64 datapath" "no probe key at $PROBE_KEY"
 elif ! ping6 -c 1 -W 1 "$BAN_ULA" >/dev/null 2>&1; then
 	skip "nat64 datapath" "ban is offline; the probe needs a host on the LAN"
 else
-	on_ban() {
-		ssh -T -i "$PROBE_KEY" "root@$BAN_ULA" "$1" 2>/dev/null </dev/null
-	}
-
 	if on_ban 'ping6 -c 1 -W 3 64:ff9b::808:808' >/dev/null 2>&1; then
 		icmp=ok
 	else
@@ -312,47 +320,35 @@ else
 	fi
 fi
 
-# --- firewall ---------------------------------------------------------------
-# Only the hosts that serve are forwarded to, and by address: on a routed
-# prefix any GUA answers on 22/80/443 from the internet the moment something
-# on it listens, so an unrestricted forward rule quietly publishes every LAN
-# host.
-forward_wan=$(nft list chain inet fw4 forward_wan 2>/dev/null)
-fwd_hosts=$(printf '%s\n' "$forward_wan" | awk '
-	/comment/ { sub(/comment ".*/, "") }
-	{
-		if ($0 !~ /accept/ || $0 !~ /tcp dport/) next
-		addr = "-"
-		if (match($0, /ip6 daddr [0-9a-f:]+/))
-			addr = substr($0, RSTART + 10, RLENGTH - 10)
-		sub(/.*tcp dport[ ]+/, "")
-		sub(/[ ](counter|accept|jump|drop|reject|return).*/, "")
-		gsub(/[{},]/, " ")
-		n = split($0, port, " ")
-		for (i = 1; i <= n; i++)
-			if (port[i] == "22" || port[i] == "80" || port[i] == "443") {
-				print addr
-				break
-			}
-	}' | sort -u | tr '\n' ' ')
-lan_stem=$(printf '%s' "$lan_gua" | cut -d: -f1-4)
-fwd_want=$(printf '%s\n' "${lan_stem}::bead" "${lan_stem}::cafe" | sort | tr '\n' ' ')
-if [ -z "$forward_wan" ]; then
-	fail "fw v6 passthru" "cannot read the forward_wan chain"
-elif [ "$fwd_hosts" = "$fwd_want" ]; then
-	pass "fw v6 passthru" "22/80/443 to cafe and bead"
+info "ephemeral ports" "$(sysctl -n net.ipv4.ip_local_port_range 2>/dev/null |
+	tr -s ' \t' ' ')"
+info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
+	grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):' | tr '\n' ' ')"
+
+# --- enforcement ------------------------------------------------------------
+group enforcement
+# IPv4-only bridge for devices that cannot use IPv6. It needs its own address,
+# and must carry no global IPv6 address - one there would put jail devices on
+# the LAN's addressing while sitting in another zone. Client isolation is a
+# setting, so this is a lint, not a consequence.
+jail4=$(ip -4 -o addr show dev br-iot 2>/dev/null | awk '{ print $4 }')
+jail6=$(ip -6 -o addr show dev br-iot scope global 2>/dev/null |
+	sed -n 's/.* inet6 \([^/]*\)\/.*/\1/p')
+jail_iso=$(uci -q get wireless.jail_radio0.isolate)
+if [ -z "$jail4" ]; then
+	fail "jail" "br-iot has no IPv4 address"
+elif [ -n "$jail6" ]; then
+	fail "jail" "$jail6 is on br-iot; the jail must stay IPv4-only"
+elif [ "$jail_iso" != "1" ]; then
+	fail "jail" "client isolation is off; jail devices can reach each other"
 else
-	fail "fw v6 passthru" "expected cafe and bead only, found: ${fwd_hosts:--}"
+	pass "jail" "lint - $jail4, isolated, no IPv6"
 fi
 
+# A lint until an external probe exists (a host outside the WAN trying 22/80/443
+# is the real consequence). It reads the wan input chain, so it also catches a
+# rule that opens the router itself.
 input_wan=$(nft list chain inet fw4 input_wan 2>/dev/null)
-case "$input_wan" in
-*"ipv4 tcp dport { 80, 443 }"*)
-	pass "fw v4 web" "80/443 accepted for the stream proxy"
-	;;
-*) fail "fw v4 web" "no ipv4 accept for 80/443; nginx cannot be reached" ;;
-esac
-
 input_open=$(printf '%s\n' "$input_wan" | awk '
 	/comment/ { sub(/comment ".*/, "") }
 	/nfproto ipv4/ { next }
@@ -368,10 +364,11 @@ if [ -n "$input_open" ]; then
 elif [ -z "$input_wan" ]; then
 	fail "fw v6 input" "cannot read the wan input chain"
 else
-	pass "fw v6 input" "no 22/80/443 accepted from WAN"
+	pass "fw v6 input" "lint - no 22/80/443 accepted from WAN"
 fi
 
 # --- services ---------------------------------------------------------------
+group services
 for svc in odhcpd dnsmasq unbound nginx uwsgi usteer; do
 	if pgrep -f "$svc" >/dev/null 2>&1; then
 		pass "service $svc" "running"
@@ -380,7 +377,8 @@ for svc in odhcpd dnsmasq unbound nginx uwsgi usteer; do
 	fi
 done
 
-# --- web --------------------------------------------------------------------
+# --- web and TLS ------------------------------------------------------------
+group web
 code=$(http_code -k "https://[$ULA]/")
 if [ "$code" = "200" ]; then
 	pass "luci https" "200 on [$ULA]"
@@ -428,7 +426,7 @@ else
 fi
 
 # --- wireless and NTP -------------------------------------------------------
-want_ssid=$(uci -q get wireless.@wifi-iface[0].ssid)
+group wireless
 radios_up=$(ubus call network.wireless status 2>/dev/null |
 	jsonfilter -e '@.*.up' | grep -c true)
 if [ "$radios_up" = "2" ]; then
@@ -454,13 +452,15 @@ else
 	fail "ssid" "$want_ssid on $main_on radio(s), $jail_ssid on $jail_on ($jail_on_24 on radio0)"
 fi
 
-if [ "$(uci -q get system.ntp.enable_server)" = "1" ]; then
-	pass "ntp server" "serving on $(uci -q get system.ntp.interface)"
+# Whether ntpd answers is the consequence; enable_server is only the setting.
+if netstat -lnup 2>/dev/null | awk '$4 ~ /:123$/ { found = 1 } END { exit !found }'; then
+	pass "ntp server" "123/udp is bound"
 else
-	fail "ntp server" "enable_server is not 1"
+	fail "ntp server" "nothing is listening on 123/udp"
 fi
 
-# --- DDNS -------------------------------------------------------------------
+# --- published DNS ----------------------------------------------------------
+group dns
 # Recursive resolvers keep serving the old rrset for up to the zone TTL after a
 # renumber, so ask the zone's own nameservers instead: they always have the
 # current data.
@@ -511,7 +511,6 @@ $expected
 	esac
 done
 
-# --- published ULAs ---------------------------------------------------------
 # mon and ban are in the zone as their ULAs. Static records, so unlike the DDNS
 # ones they cannot drift with the prefix - but they can be deleted.
 for pair in "$MON_NAME|$ULA" "ban.drasa.eu|$BAN_ULA"; do

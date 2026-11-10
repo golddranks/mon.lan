@@ -1,18 +1,25 @@
 #!/bin/sh
-# Mail when the set of failing netdiag checks changes.
+# Mail when the set of failing netdiag checks, or an observed value, changes.
 #
 # Labels listed in /root/mon-watch.expected (one per line) are ignored. That
 # file is for temporary known states - while the LAN prefix is wrong, for
 # example - and is deliberately not part of the image.
+#
+# `[value]` lines from netdiag are remembered in /root/mon-watch.values. They
+# are observations, not checks: a renumbering that stays healthy produces no
+# failure at all, so the values are what make it visible.
 set -u
 
 NETDIAG="${NETDIAG:-/usr/bin/netdiag}"
 SEND="${SEND:-/usr/libexec/mon-send}"
 STATE="${STATE:-/root/mon-watch.state}"
+VALUES="${VALUES:-/root/mon-watch.values}"
 EXPECTED="${EXPECTED:-/root/mon-watch.expected}"
 
 prev=""
 [ -f "$STATE" ] && prev=$(cat "$STATE")
+values_seen=0
+[ -f "$VALUES" ] && values_seen=1
 
 if [ ! -x "$NETDIAG" ]; then
 	# One message, not one per cron run: the state file records this too.
@@ -48,7 +55,60 @@ if [ -f "$EXPECTED" ]; then
 fi
 now=$(printf '%s\n' "$now" | sed '/^$/d')
 
-[ "$now" = "$prev" ] && exit 0
+# The same 20-column layout, so a value's label is comparable too.
+now_vals=$(printf '%s\n' "$out" | awk '
+	/^\[value\] / {
+		label = substr($0, 9, 20)
+		sub(/ +$/, "", label)
+		val = substr($0, 29)
+		sub(/^ +/, "", val)
+		print label "=" val
+	}' | sort)
+
+# Report a changed value, an appearing one, or a disappearing one. Skipped on
+# the first run (no file yet) and when netdiag printed no values at all: an
+# older or broken netdiag must not look like every value vanished.
+changed_vals=
+if [ "$values_seen" -eq 1 ] && [ -n "$now_vals" ]; then
+	changed_vals=$(printf '%s\n' "$now_vals" | awk -v file="$VALUES" '
+		BEGIN {
+			while ((getline line < file) > 0) {
+				eq = index(line, "=")
+				if (eq) old[substr(line, 1, eq - 1)] = substr(line, eq + 1)
+			}
+			close(file)
+		}
+		{
+			if ($0 == "") next
+			eq = index($0, "=")
+			label = substr($0, 1, eq - 1)
+			val = substr($0, eq + 1)
+			seen[label] = 1
+			if (label in old) {
+				if (old[label] != val)
+					print label ": " old[label] " -> " val
+			} else {
+				print label ": " val " (new)"
+			}
+		}
+		END {
+			for (l in old)
+				if (!(l in seen))
+					print l ": " old[l] " (gone)"
+		}' | sort)
+fi
+
+fail_changed=0
+[ "$now" = "$prev" ] || fail_changed=1
+value_changed=0
+[ -n "$changed_vals" ] && value_changed=1
+
+[ "$fail_changed" -eq 0 ] && [ "$value_changed" -eq 0 ] && {
+	# Still record, or the first run would never seed the files.
+	printf '%s\n' "$now" > "$STATE"
+	[ -n "$now_vals" ] && printf '%s\n' "$now_vals" > "$VALUES"
+	exit 0
+}
 
 added=$(printf '%s\n' "$now" | while IFS= read -r l; do
 	[ -n "$l" ] || continue
@@ -58,15 +118,18 @@ cleared=$(printf '%s\n' "$prev" | while IFS= read -r l; do
 	[ -n "$l" ] || continue
 	printf '%s\n' "$now" | grep -qxF "$l" || printf '%s\n' "$l"
 done)
+value_labels=$(printf '%s\n' "$changed_vals" | sed 's/: .*//' | tr '\n' ' ')
 
-if [ -z "$now" ]; then
+if [ "$fail_changed" -eq 1 ] && [ -z "$now" ]; then
 	subj="mon: no unexpected failures"
-elif [ -n "$added" ]; then
+elif [ "$fail_changed" -eq 1 ] && [ -n "$added" ]; then
 	subj="mon: new failure - $(printf '%s' "$added" | tr '\n' ' ')"
-elif [ -n "$cleared" ]; then
+elif [ "$fail_changed" -eq 1 ] && [ -n "$cleared" ]; then
 	subj="mon: failure cleared - $(printf '%s' "$cleared" | tr '\n' ' ')"
-else
+elif [ "$fail_changed" -eq 1 ]; then
 	subj="mon: failures changed"
+else
+	subj="mon: values changed - $(printf '%s' "$value_labels" | sed 's/ *$//')"
 fi
 
 body=/tmp/mon-watch.$$
@@ -80,6 +143,11 @@ body=/tmp/mon-watch.$$
 	if [ -n "$cleared" ]; then
 		printf 'cleared:\n'
 		printf '%s\n' "$cleared" | sed 's/^/  /'
+		printf '\n'
+	fi
+	if [ -n "$changed_vals" ]; then
+		printf 'values changed:\n'
+		printf '%s\n' "$changed_vals" | sed 's/^/  /'
 		printf '\n'
 	fi
 	printf 'current state:\n'
@@ -105,3 +173,6 @@ $SEND "$subj" "$body"
 rm -f "$body"
 
 printf '%s\n' "$now" > "$STATE"
+[ -n "$now_vals" ] && printf '%s\n' "$now_vals" > "$VALUES"
+
+exit 0

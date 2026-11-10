@@ -11,8 +11,8 @@ time.
 ## mon
 
 - **WAN** DHCPv4 + DHCPv6-PD (/56), with a fixed DHCPv6 identity. **LAN** is
-  IPv6-only: no IPv4, no DHCPv4; the GUA prefix is set by hand (J:COM delegates
-  prefixes it does not route), plus ULA `fd42:6d6f:6e00::/48` for stable names.
+  IPv6-only: no IPv4, no DHCPv4; the GUA is the first /64 of the delegation, so
+  it follows the prefix, plus ULA `fd42:6d6f:6e00::/48` for stable names.
 - **NAT64 + DNS64**: IPv4-only destinations are reachable from the IPv6-only
   LAN; unbound synthesises the AAAA and Jool translates to the WAN address, and
   some clients build their own CLAT (464XLAT).
@@ -34,20 +34,22 @@ time.
   needed for it. IPv4 :80/:443 are nginx's proxy, routing 443 by name to cafe so
   cafe keeps its own certificates.
 - **Diagnostics**: `netdiag` checks the invariants and exits non-zero on
-  failure; `mon-watch` runs it every 10 min and mails only when the failing set
-  changes (known temporary states are silenced); `mon-weekly` mails netdiag,
-  addressing, routes, Jool counters and the last kernel log lines; failed sends
-  are logged to `/root/mon-notify.log`.
+  failure; `mon-watch` runs it every 10 min and mails when the failing set or a
+  watched value (the delegation, the LAN GUA) changes, so a clean renumbering is
+  still reported (known temporary states are silenced); `mon-weekly` mails
+  netdiag, addressing, routes, Jool counters and the last kernel log lines;
+  failed sends are logged to `/root/mon-notify.log`.
 
 ## ban
 
 A dumb AP: it bridges, nothing else.
 
 - All five ethernet ports are one bridge, so the uplink can use any port.
-- Static ULA `fd42:6d6f:6e00::2/64`; LuCI listens only there. SLAAC still gives
-  it a GUA ending in `::2` and a default route, which is what the netdiag
-  datapath probe runs from. No `dnsmasq`/`odhcpd`: mon is the only DHCP, RA and
-  DNS server.
+- Static ULA `fd42:6d6f:6e00::2/64`; LuCI and SSH answer only there and on
+  link-local. It takes a default route from mon's Router Advertisements but
+  ignores their prefix information, so it forms no GUA — nothing on ban is
+  reachable through a routed prefix — and the netdiag datapath probe sources
+  from the ULA. No `dnsmasq`/`odhcpd`: mon is the only DHCP, RA and DNS server.
 - Stock LuCI; it serves a Let's Encrypt certificate. SSH key-only; time from
   mon. Offset channels (2.4 GHz: 6, 5 GHz: 52 — DFS).
 
@@ -58,7 +60,7 @@ build/nix-run.sh        enter the pinned environment, then ./lima-run.sh
 build/lima-run.sh       start the Linux VM and run build.sh in it
 build/build.sh          build one device
 build/packages/         packages to bake in ('-name' removes a default)
-build/vars.sed          values substituted into the overlay (@ULA@, @LAN_PREFIX@, @FT_MDID@)
+build/vars.sed          values substituted into the overlay (@ULA@, @FT_MDID@)
 build/flake.nix         pinned lima (qemu x86_64) environment
 image/mon/  image/ban/  rootfs overlays, with @TOKEN@ placeholders
 LEARNINGS.md            assumptions that turned out wrong
@@ -88,11 +90,9 @@ cp ../secrets.sed.example ../secrets.sed   # fill in every token
 
 ## Recipes
 
-The image ships a few recipes for problems that come up, each doing one thing.
-`set-lan-prefix <prefix>/64` changes the LAN prefix; run it when `netdiag`
-reports `lan-sourced egress` failing. `jail-pairing on|off` opens the jail so a
-WPS device can pair, and closes it again once the device is registered; cron
-closes it at 04:35 either way.
+The image ships a recipe for problems that come up: `jail-pairing on|off` opens
+the jail so a WPS device can pair, and closes it again once the device is
+registered; cron closes it at 04:35 either way.
 
 ## Not yet implemented
 

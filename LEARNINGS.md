@@ -7,21 +7,19 @@ prefer a line of fact over a paragraph of reasoning.
 ## netifd and addressing
 
 - **A delegation means a prefix, not a route.** J:COM hands out a healthy
-  `/56` and routes none of it; LAN GUAs built from it are dead while every lease
-  and netifd check stays green.
+  `/56` and routes none of it; LAN GUAs built from it are dead while every
+  lease and netifd check stays green. What that caught was a prefix that had
+  stopped being routed: on 2026-11-10 the reverse also held - the delegated
+  `/56` routed and two provisioned prefixes did not. Probe the prefix; the
+  delegation alone says nothing (see J:COM specifics).
 - **Routing changes under you.** The same prefix answered a LAN-sourced ping
   early in a session and did not answer two hours later. Never store "this
   prefix works"; re-probe it.
 - **netifd only installs `default from <prefix>` for prefixes it assigned** out
-  of a delegation. A prefix that is set explicitly needs its own `route6`
-  section, and that section needs a `gateway`: without one you get an on-link
-  route that does nothing.
-- **The route's `gateway` is the ISP's link-local** (`fe80::217:10ff:feaa:caab`),
-  not an address this repo controls. `set-lan-prefix` reuses it from uci, so
-  different ISP equipment needs the config edited, not the recipe run.
-- **`ip6assign '0'` disables assignment** (netifd only accepts 48–64). Without
-  it, a delegated-but-unrouted /64 lands on br-lan next to the configured one
-  and gets advertised to clients.
+  of a delegation. A hand-set prefix needs its own `route6` section with a
+  `gateway`; without one you get an on-link route that does nothing.
+- **`ip6assign '0'` disables assignment** (netifd only accepts 48-64). The LAN
+  uses `64`, so netifd puts the first /64 of the delegation on br-lan.
 - **`uci show` prints a list as `'a' 'b'` and an option as `'a b'`**, both on one
   line. A `key='value'` regex over it silently misses lists.
 - **`uci set foo.bar='a b'` stores one option, not a list.** For `ip6addr`
@@ -33,12 +31,12 @@ prefer a line of fact over a paragraph of reasoning.
 - **The ULA is a hand-picked mnemonic, not RFC 4193.** `fd42:6d6f:6e00` is
   `fd42` + "mon" + `00`; nothing generated or verified it. Acceptable on one
   private network; re-check before peering with another site.
-- **One definition, or it rots.** The ULA and the LAN /64 are one line each
-  in `build/vars.sed`; the overlay carries `@ULA@`/`@LAN_PREFIX@` and `build.sh`
-  substitutes them the same way it substitutes secrets, refusing to ship a
-  leftover `@TOKEN@`. Scripts derive the same values from uci instead.
-  Consequence: files under `image/` are templates - the copy to put on a box is
-  the rendered one in `build/.work/<device>/files/`.
+- **One definition, or it rots.** The ULA is one line in `build/vars.sed`; the
+  overlay carries `@ULA@` and `build.sh` substitutes it the same way it
+  substitutes secrets, refusing to ship a leftover `@TOKEN@`. Scripts derive
+  the same value from uci instead. Consequence: files under `image/` are
+  templates - the copy to put on a box is the rendered one in
+  `build/.work/<device>/files/`.
 - **Names are not values.** A name somebody chose (a domain, an SSID, a host id)
   is its own best spelling and stays literal. An arbitrary value - an address, a
   prefix, an opaque id like the 802.11r mobility domain - is a candidate for a
@@ -71,12 +69,48 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   segment routed to us; hosts inside that /64 are not ours to address.
 - **A network restart can change the IPv4 lease.** Tying the whole NAT64 setup
   to the old address then breaks v4 egress while v6 keeps working.
+- **Which prefixes the line routes is provisioning, not delegation.** On
+  2026-11-10 every prefix mon had held answered nothing (5 probes each), the
+  current delegation `54e:a100::/56` answered, and the two prefixes from the
+  cable modem's routing-mode experiment answered 5/5 six days after the modem
+  stopped using them. Routing outlives the device that held the prefix and
+  does not follow DHCPv6-PD.
+- **Prefix timeline.** First mention in the session log, anchored to the
+  nearest preceding timestamp there, so approximate. All `2405:1200:...`.
+
+  | first seen       | prefix                                         | role                           |
+  | ---------------- | ---------------------------------------------- | ------------------------------ |
+  | 2026-06-30       | `542:1800`                                     | previous router, not this line |
+  | 2026-10-20 06:46 | `542:5500`                                     | LAN                            |
+  | 2026-10-20 08:08 | `542:5f00`                                     | second prefix that day         |
+  | 2026-11-02 17:31 | `54b:3800`                                     |                                |
+  | 2026-11-02 19:28 | `54b:4500`                                     | LAN until 2026-11-10           |
+  | 2026-11-02 19:28 | `54b:6e00`, `54b:8600`, `54b:8800`, `54b:d100` | later delegations              |
+  | 2026-11-03 22:13 | `54c:800`, `54c:b00`                           | cable modem, routing mode      |
+  | 2026-11-03 23:43 | `54c:1600/1700/1900`                           | probing                        |
+  | 2026-11-04 01:00 | `54c:2700/2800/2a00/2b00`                      | probing                        |
+  | 2026-11-04 02:52 | `54c:3300/3600/3700/3800`                      | DUID/release experiments       |
+  | 2026-11-04 11:33 | `54c:7100`                                     |                                |
+  | 2026-11-06 17:23 | `54d:f100`                                     |                                |
+  | 2026-11-06 19:26 | `54e:1900`, `54e:3c00`                         |                                |
+  | 2026-11-07 18:20 | `54e:a100`                                     | delegation, current            |
+
+  `54e:a100` was already the delegation on 2026-11-07 while the LAN stayed on
+  `54b:4500`, which still routed then. Nothing broke until that route died, so
+  a stale LAN prefix is invisible to every check except a reachability probe.
+  Since 2026-11-10 the LAN takes the first /64 of the delegation, so a new
+  delegation is adopted without an operator step.
+
+- **The PD lease is 7 days, but the first OFFER says 300 s.** The OFFER carries
+  pltime 270 / vltime 300; the REPLY carries 544320 / 604800 (preferred 90 %,
+  T1 3.5 d, T2 6.1 d). The binding sticks while the DUID is stable; `release`
+  or a DUID change yields a new `/56` at once. Captured 2026-11-04.
 
 ## DDNS
 
-- **`_aaaa` is the LAN prefix plus the host id**, so an expectation derived from
-  the delegation's stem asserts the wrong thing (and would call a correct record
-  wrong).
+- **`_aaaa` is the LAN /64 plus the host id**, and the LAN /64 is the first /64
+  of the delegation, so the delegation's stem is the right expectation while
+  `ip6hint` stays 0.
 - **"Update successful" can mean nothing was sent** (the dry-run path prints the
   same line), and Gandi's authoritative NSes disagree for minutes after a change,
   so a check that picks one NS at random alternates PASS/FAIL.

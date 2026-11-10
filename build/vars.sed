@@ -7,10 +7,6 @@
 # The ULA prefix: hand-picked (fd42 + "mon" + 00), not RFC 4193-derived.
 s|@ULA@|fd42:6d6f:6e00|g
 
-# The LAN GUA prefix: whichever /64 the ISP currently routes to the house. The
-# image carries a bootstrap value; /root/recipes/set-lan-prefix rewrites it at
-# runtime.
-s|@LAN_PREFIX@|2405:1200:54b:4500|g
 
 # The 802.11r mobility domain. The value means nothing by itself - it only has to
 # be identical on every AP, or fast roaming stops working without an error.

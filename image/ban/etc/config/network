@@ -10,8 +10,9 @@
 #
 # The management address is a static ULA and deliberately not a GUA: mon
 # forwards inbound IPv6 22/80/443 to every LAN host, so a global address would
-# expose this device's LuCI to the internet. There is no default route either;
-# an access point has nothing to reach off-link.
+# expose this device's LuCI to the internet. It does take mon's default route
+# for the NAT64 datapath check netdiag runs here, but ignores the RA's prefix
+# information - see /etc/sysctl.d/10-accept-ra.conf.
 
 config interface 'loopback'
 	option device 'lo'
