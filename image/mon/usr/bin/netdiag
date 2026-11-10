@@ -13,20 +13,23 @@
 #
 # Not covered: ACME renewal itself (only the certificate it produced is
 # checked), cafe's own services beyond a TCP handshake, and the NAT64 datapath
-# when ban is offline (the datapath check needs a host on the LAN).
+# when ban is offline (the datapath check needs a host on the LAN). The outside
+# group needs hato and reports skip for all of its checks when it is away.
 #
 # Read-only. Exit status is 1 if any check fails.
 
 WAN_DEV="eth1"
 LAN_DEV="br-lan"
 MON_NAME="mon.drasa.eu"
+BAN_NAME="ban.drasa.eu"
+CAFE_NAME="cafe.drasa.eu"
 WEB_NAME="webshare.drasa.eu"
+HATO="hato.drasa.eu"
 ula_stem=$(uci -q get network.globals.ula_prefix | sed 's|::/[0-9]*$||')
 ULA="$ula_stem::1"
 BAN_ULA="$ula_stem::2"
 CAFE_ULA="$ula_stem::cafe"
 BEAD_ULA="$ula_stem::bead"
-POOL6="64:ff9b::/96"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
@@ -66,6 +69,26 @@ http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@" 2>/dev/nu
 
 on_ban() {
 	ssh -T -i "$GHOST_KEY" "ghost@$BAN_ULA" "$1" 2>/dev/null </dev/null
+}
+
+# Runs one command on hato as the same ghost user. It is the only vantage point
+# outside the line. dbclient has no connect timeout and this busybox has no
+# `timeout`, so the call is capped here: a wedged route must not stall a cron
+# run. Everything sent to hato carries its own limit (curl --max-time, nc -w,
+# ping -w).
+on_hato() {
+	out=/tmp/netdiag.hato.$$
+	ssh -T -i "$GHOST_KEY" "ghost@$HATO" "$1" >"$out" 2>/dev/null </dev/null &
+	pid=$!
+	# The killer's stdio is redirected: it outlives this function when the call
+	# returns early, and anything it holds open would keep a caller's $(...)
+	# from finishing for the rest of the sleep.
+	{ sleep 20; kill "$pid" 2>/dev/null; } >/dev/null 2>&1 &
+	killer=$!
+	wait "$pid" 2>/dev/null
+	kill "$killer" 2>/dev/null
+	cat "$out"
+	rm -f "$out"
 }
 
 # --- identity ---------------------------------------------------------------
@@ -526,5 +549,91 @@ $want
 	*) fail "zone $name" "public AAAA is not $want (got: $(printf '%s' "$answers" | tr '\n' ' '))" ;;
 	esac
 done
+
+# --- from outside ------------------------------------------------------------
+# hato is outside the line, so it is the one vantage point that sees this
+# network the way a stranger does. Every check here is a consequence of the
+# firewall or of what DNS publishes; mon's own view of the same names is above.
+group pub
+
+# field() pulls one key=value line out of a batch of remote output.
+field() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1; }
+
+if [ -z "$(on_hato 'echo ok')" ]; then
+	fail "pub vantage" "$HATO does not answer; the outside checks cannot run"
+	for label in "wan4 input" "wan6 input" "mon closed" "cafe" "ban closed"; do
+		skip "pub $label" "hato is unreachable"
+	done
+else
+	pass "pub vantage" "$HATO answers"
+	# IPv4 is one address shared by the line, so which host answers on it is a
+	# policy question: the router keeps 22 to itself and 80/443 belong to cafe.
+	if [ -z "$wan4" ]; then
+		skip "pub wan4 input" "no WAN IPv4"
+	else
+		out=$(on_hato "ping -c 1 -w 2 $wan4 >/dev/null 2>&1; echo icmp=\$?
+			nc -z -w 3 $wan4 22 >/dev/null 2>&1; echo s22=\$?
+			curl -sS -o /dev/null -w 'cafe=%{http_code}\n' --max-time 6 --resolve $CAFE_NAME:443:$wan4 https://$CAFE_NAME/")
+		icmp=$(field "$out" icmp)
+		s22=$(field "$out" s22)
+		cafe4=$(field "$out" cafe)
+		if [ "$icmp" = 0 ] && [ "$s22" != 0 ] && [ "$cafe4" = 200 ]; then
+			pass "pub wan4 input" "$wan4: ICMP answers, 22 refused, 443 is cafe"
+		else
+			fail "pub wan4 input" "$wan4: icmp=${icmp:-?} 22=${s22:-?} cafe-443=${cafe4:-?}"
+		fi
+	fi
+
+	# In IPv6 the address is mon's own, so nothing of cafe's may answer on it.
+	# The address comes from DHCPv6 and can move; ICMP is the liveness control
+	# that separates "refuses" from "this run has a stale address".
+	case "$wan6_addr" in
+	'') skip "pub wan6 input" "no WAN IPv6" ;;
+	*[!0-9a-fA-F:]*) skip "pub wan6 input" "unexpected WAN address '$wan6_addr'" ;;
+	*)
+		out=$(on_hato "ping -6 -c 1 -w 2 $wan6_addr >/dev/null 2>&1; echo icmp=\$?
+			nc -z -w 3 $wan6_addr 22 >/dev/null 2>&1; echo s22=\$?
+			nc -z -w 3 $wan6_addr 80 >/dev/null 2>&1; echo s80=\$?
+			nc -z -w 3 $wan6_addr 443 >/dev/null 2>&1; echo s443=\$?")
+		icmp=$(field "$out" icmp)
+		s22=$(field "$out" s22)
+		s80=$(field "$out" s80)
+		s443=$(field "$out" s443)
+		if [ "$icmp" != 0 ]; then
+			fail "pub wan6 input" "$wan6_addr does not answer ICMP from outside (address moved?)"
+		elif [ "$s22" = 0 ] || [ "$s80" = 0 ] || [ "$s443" = 0 ]; then
+			fail "pub wan6 input" "mon's own address answers: 22=${s22:-?} 80=${s80:-?} 443=${s443:-?}"
+		else
+			pass "pub wan6 input" "$wan6_addr: ICMP answers, 22/80/443 refuse"
+		fi
+		;;
+	esac
+
+	# The name must lead nowhere: AAAA-only, pointing at the ULA, and no answer.
+	for pair in "$MON_NAME|$ULA" "$BAN_NAME|$BAN_ULA"; do
+		name=${pair%|*}
+		want=${pair#*|}
+		label=${name%%.*}
+		out=$(on_hato "dig +short A $name | sed 's/^/a=/'
+			dig +short AAAA $name | sed 's/^/aaaa=/'
+			curl -sS -o /dev/null -w 'http=%{http_code}\n' --max-time 6 https://$name/")
+		a=$(field "$out" a)
+		aaaa=$(field "$out" aaaa)
+		http=$(field "$out" http)
+		if [ -z "$a" ] && [ "$aaaa" = "$want" ] && [ "$http" = 000 ]; then
+			pass "pub $label closed" "$name is AAAA-only ($want) and answers nothing"
+		else
+			fail "pub $label closed" "A='$a' AAAA='${aaaa:-none}' http=${http:-?}"
+		fi
+	done
+
+	# cafe's certificate is what v6 clients verify when they follow the DNS.
+	code=$(on_hato "curl -sS -o /dev/null -w '%{http_code}' --max-time 8 https://$CAFE_NAME/")
+	if [ "$code" = 200 ]; then
+		pass "pub cafe" "200 with a verified certificate"
+	else
+		fail "pub cafe" "expected 200 with a verified certificate, got '${code:-no answer}'"
+	fi
+fi
 
 exit "$bad"
