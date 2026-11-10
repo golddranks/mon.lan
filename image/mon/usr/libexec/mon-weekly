@@ -31,5 +31,8 @@ TMP=/tmp/mon-weekly.$$
 	logread 2>/dev/null | tail -n 200
 } > "$TMP" 2>&1
 
-$SEND "mon: weekly report" "$TMP"
+# The weekly report starts the mail thread and names the week: every message mon
+# sends until the next report carries the same subject, which is what keeps them
+# in one conversation. The event itself goes on the body's first line.
+MON_THREAD_NEW=1 $SEND "weekly report" "$TMP"
 rm -f "$TMP"

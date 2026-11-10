@@ -26,7 +26,7 @@ if [ ! -x "$NETDIAG" ]; then
 	[ "$prev" = "netdiag-missing" ] && exit 0
 	body=/tmp/mon-watch.$$
 	printf 'netdiag is not executable at %s\n' "$NETDIAG" > "$body"
-	$SEND "mon: netdiag missing" "$body"
+	$SEND "netdiag missing" "$body"
 	rm -f "$body"
 	printf '%s\n' "netdiag-missing" > "$STATE"
 	exit 1
@@ -34,9 +34,15 @@ fi
 
 out=$($NETDIAG 2>&1)
 
+# netdiag prints "[FAIL] %-20s %s", and the state file records only the label, so
+# this recovers the whole line - the reason is what makes it readable.
+fail_line() {
+	printf '%s\n' "$out" | grep -F "[FAIL] $(printf '%-20s' "$1")" || true
+}
+
 # netdiag prints "[FAIL] %-20s %s", so the label is the first 20 columns. netdiag
 # keeps every label within those 20 characters; a longer one would be cut here
-# and could never match the detail line reconstructed below.
+# and could never match the line fail_line() looks up.
 now=$(printf '%s\n' "$out" |
 	sed -n 's/^\[FAIL\] //p' |
 	cut -c1-20 |
@@ -121,15 +127,15 @@ done)
 value_labels=$(printf '%s\n' "$changed_vals" | sed 's/: .*//' | tr '\n' ' ')
 
 if [ "$fail_changed" -eq 1 ] && [ -z "$now" ]; then
-	subj="mon: no unexpected failures"
+	event="no unexpected failures"
 elif [ "$fail_changed" -eq 1 ] && [ -n "$added" ]; then
-	subj="mon: new failure - $(printf '%s' "$added" | tr '\n' ' ')"
+	event="new failure: $(printf '%s' "$added" | sed 's/ *$//' | tr '\n' ' ')"
 elif [ "$fail_changed" -eq 1 ] && [ -n "$cleared" ]; then
-	subj="mon: failure cleared - $(printf '%s' "$cleared" | tr '\n' ' ')"
+	event="failure cleared: $(printf '%s' "$cleared" | sed 's/ *$//' | tr '\n' ' ')"
 elif [ "$fail_changed" -eq 1 ]; then
-	subj="mon: failures changed"
+	event="failures changed"
 else
-	subj="mon: values changed - $(printf '%s' "$value_labels" | sed 's/ *$//')"
+	event="values changed: $(printf '%s' "$value_labels" | sed 's/ *$//')"
 fi
 
 body=/tmp/mon-watch.$$
@@ -137,12 +143,15 @@ body=/tmp/mon-watch.$$
 	printf 'mon, %s\n\n' "$(date -u +%FT%TZ)"
 	if [ -n "$added" ]; then
 		printf 'new failures:\n'
-		printf '%s\n' "$added" | sed 's/^/  /'
+		printf '%s\n' "$added" | while IFS= read -r l; do
+			[ -n "$l" ] || continue
+			fail_line "$l" | sed 's/^/  /'
+		done
 		printf '\n'
 	fi
 	if [ -n "$cleared" ]; then
 		printf 'cleared:\n'
-		printf '%s\n' "$cleared" | sed 's/^/  /'
+		printf '%s\n' "$cleared" | sed 's/^/  [FIXED] /'
 		printf '\n'
 	fi
 	if [ -n "$changed_vals" ]; then
@@ -159,17 +168,14 @@ body=/tmp/mon-watch.$$
 		fi
 	else
 		printf '  unexpected failures:\n'
-		printf '%s\n' "$now" | sed 's/^/    /'
-		printf '\ndetail:\n'
 		printf '%s\n' "$now" | while IFS= read -r l; do
 			[ -n "$l" ] || continue
-			printf '%s\n' "$out" |
-				grep -F "[FAIL] $(printf '%-20s' "$l")" || true
+			fail_line "$l" | sed 's/^/    /'
 		done
 	fi
 } > "$body"
 
-$SEND "$subj" "$body"
+$SEND "$event" "$body"
 rm -f "$body"
 
 printf '%s\n' "$now" > "$STATE"

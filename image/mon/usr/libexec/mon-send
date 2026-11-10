@@ -1,26 +1,59 @@
 #!/bin/sh
-# mon-send <subject> <body-file>
+# mon-send <event> <body-file>
 #
 # The recipient comes from secrets.sed (@ADMIN_EMAIL@); the SMTP server and its
 # credentials are msmtp's own /etc/msmtprc. When sending fails the message is
 # appended to /root/mon-notify.log rather than dropped.
+#
+# The subject is the week's, not the event's: Gmail threads on the subject and
+# ignores References that point at a differently titled message, so every report
+# between two weekly ones carries the same "mon: <date>". The event goes on the
+# body's first line, which is what the list snippet shows. MON_THREAD_NEW=1
+# starts the week: it names it and records the thread root.
 set -u
 
-subj="$1"
+event="$1"
 body="$2"
 
 to="${MON_MAIL_TO:-@ADMIN_EMAIL@}"
+thread=/root/mon-thread
+
+msgid="<$(date +%s).$$@mon.drasa.eu>"
+if [ "${MON_THREAD_NEW:-0}" = 1 ]; then
+	label="mon: $(date +%F)"
+	printf '%s\n%s\n' "$msgid" "$label" >"$thread"
+	ref=
+else
+	ref=$(sed -n 1p "$thread" 2>/dev/null)
+	label=$(sed -n 2p "$thread" 2>/dev/null)
+	# Before the first weekly report there is no thread yet: a fixed root keeps
+	# those messages together, and today's date names them.
+	[ -n "$ref" ] || ref="<mon@mon.drasa.eu>"
+	[ -n "$label" ] || label="mon: $(date +%F)"
+fi
+
+headers() {
+	printf 'Subject: %s\n' "$label"
+	printf 'To: %s\n' "$to"
+	printf 'Date: %s\n' "$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
+	printf 'Message-ID: %s\n' "$msgid"
+	if [ -n "$ref" ]; then
+		printf 'References: %s\n' "$ref"
+		printf 'In-Reply-To: %s\n' "$ref"
+	fi
+	printf '\n'
+}
 
 if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
 	err=/tmp/mon-send.$$
-	if { printf 'Subject: %s\nTo: %s\n\n' "$subj" "$to"; cat "$body"; } |
+	if { headers; printf '%s\n\n' "$event"; cat "$body"; } |
 		msmtp "$to" 2>"$err"; then
 		rm -f "$err"
 		exit 0
 	fi
 	# /tmp/msmtp.log is in RAM; keep the reason with the message itself.
 	{
-		printf '%s %s\n' "$(date -u +%FT%TZ)" "$subj"
+		printf '%s %s\n' "$(date -u +%FT%TZ)" "$event"
 		printf 'delivery failed, msmtp said:\n'
 		sed 's/^/  /' "$err"
 		cat "$body"
@@ -29,4 +62,4 @@ if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
 	exit 0
 fi
 
-{ printf '%s %s\n' "$(date -u +%FT%TZ)" "$subj"; cat "$body"; } >> /root/mon-notify.log
+{ printf '%s %s\n' "$(date -u +%FT%TZ)" "$event"; cat "$body"; } >> /root/mon-notify.log
