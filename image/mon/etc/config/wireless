@@ -5,10 +5,11 @@
 #
 # One SSID on both bands, so clients choose the band and move between them on
 # their own. 802.11r (fast BSS transition) is on, with the same mobility domain
-# as ban: `ft_psk_generate_local` derives the FT keys from the shared PSK, so
-# the two APs only have to agree on the domain. 802.11k/v are on too; their
+# as ban: the FT keys come from the SAE password via that domain, so the two
+# APs only have to agree on the domain. 802.11k/v are on too; their
 # neighbour reports and steering state are exchanged by usteer.
-# The PSK is baked from secrets.sed (@WIFI_PW@).
+# The key from secrets.sed is the SAE password; devices that cannot do SAE
+# belong on the jail SSID.
 
 config wifi-device 'radio0'
 	option type 'mac80211'
@@ -23,28 +24,36 @@ config wifi-iface 'default_radio0'
 	option network 'lan'
 	option mode 'ap'
 	option ssid 'Skeletor'
-	option encryption 'psk2'
+	option encryption 'sae'
 	option key '@WIFI_PW@'
+	option ieee80211w '2'
 	option ieee80211r '1'
 	option mobility_domain '@FT_MDID@'
 	option ft_over_ds '1'
-	option ft_psk_generate_local '1'
 	option ieee80211k '1'
 	option ieee80211v '1'
 
-# The jail: IPv4-only devices that the IPv6-only LAN cannot serve. 2.4 GHz only -
-# those devices are 2.4 GHz, and the 5 GHz radio stays for everything else. No
-# 802.11r/802.11k/v: nothing here roams, and the PSK is its own. `isolate` drops
-# station-to-station frames at the AP, which the firewall cannot do for a
-# switched bridge; DHCP, DNS and NAT keep working because the AP relays them.
+# The jail: IPv4-only devices that the IPv6-only LAN cannot serve, and the place
+# for clients that cannot do WPA3. Both kinds are here - Switch 2 and the
+# doorbell do SAE, Switch 1 and the scale do not - so the BSS offers both. 2.4
+# GHz only: those devices are 2.4 GHz, and the 5 GHz radio stays for everything
+# else. No 802.11r/802.11k/v: nothing here roams, and the PSK is its own.
+# `isolate` drops station-to-station frames at the AP, which the firewall cannot
+# do for a switched bridge; DHCP, DNS and NAT keep working because the AP relays
+# them.
 config wifi-iface 'jail_radio0'
 	option device 'radio0'
 	option network 'iot'
 	option mode 'ap'
 	option ssid 'SkeletorJail'
-	option encryption 'psk2'
+	option encryption 'sae-mixed'
 	option key '@IOT_WIFI_PW@'
+	option ieee80211w '1'
 	option isolate '1'
+	# WPS is off except while /root/recipes/jail-pairing has the jail open for a
+	# device whose only credential entry is a WPS button; pairing needed
+	# isolation off too, so the two are one switch.
+	option wps_pushbutton '0'
 
 config wifi-device 'radio1'
 	option type 'mac80211'
@@ -60,11 +69,11 @@ config wifi-iface 'default_radio1'
 	option network 'lan'
 	option mode 'ap'
 	option ssid 'Skeletor'
-	option encryption 'psk2'
+	option encryption 'sae'
 	option key '@WIFI_PW@'
+	option ieee80211w '2'
 	option ieee80211r '1'
 	option mobility_domain '@FT_MDID@'
 	option ft_over_ds '1'
-	option ft_psk_generate_local '1'
 	option ieee80211k '1'
 	option ieee80211v '1'

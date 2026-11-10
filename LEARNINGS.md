@@ -95,6 +95,33 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   `pci0000:00/0000:00:00.0` and `platform/ahb/18100000.wmac`; with a bare
   `radio0`/`radio1` a duplicate takes the phy over.
 
+## Wireless
+
+- **Offering both WPA2 and WPA3 keeps clients on WPA2, silently.** With
+  `sae-mixed` the Mac stayed on `FT_PSK` and reported nothing; it negotiated
+  `FT_SAE` only once the WPA2 BSS was gone. A mixed SSID says nothing about
+  which clients support SAE.
+- **One BSS can carry both kinds.** The jail is `sae-mixed`: the doorbell and
+  Switch 2 join it with SAE (`auth_alg=sae` in hostapd's log) and Switch 1 and
+  the scale join the same BSS with WPA2 (`auth_alg=open`). The main SSID is pure
+  `sae`.
+- **A client's first association is not its final answer.** Switch 2 connected
+  with `auth_alg=open` for a while and only later negotiated SAE on the same
+  BSS; the doorbell looked WPA2-only because it had not retried during the short
+  window the jail was SAE. Wait for the client, or read `auth_alg=`, before
+  concluding anything about it.
+- **WPS is a switch in the BSS config, not a window.** Without `wps_pushbutton`
+  hostapd advertises no WPS at all; with it, the beacon carries the WSC element
+  and `config_methods` holds `push_button` alone (no PIN to guess). The window
+  itself is a control-interface command on top of that.
+- **A wireless config change restarts only the BSS that changed.** One hostapd
+  process and one global socket serve every phy, so it looks all-or-nothing, but
+  netifd restarts the network interface that owns the changed BSS: the jail went
+  `AP-DISABLED`, `Interface 'iot' is now down`, `Add bss phy0-ap1 on phy phy0`,
+  while `phy0-ap0` and `phy1-ap0` stayed `ENABLED` with their stations.
+- **`uci set` records nothing when the value is unchanged**, so `uci changes`
+  after setting is the cheap "does a reload have to happen" test.
+
 ## The jail
 
 - **Client isolation is per BSS, and the firewall cannot help on a bridge.**

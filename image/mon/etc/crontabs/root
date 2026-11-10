@@ -1,3 +1,6 @@
 # acme-common and nginx-util append their own lines when installed.
 */10 * * * * /usr/libexec/mon-watch
 0 9 * * 1 /usr/libexec/mon-weekly
+# A jail left open for pairing closes itself overnight; the script is silent
+# unless it actually had to close anything.
+35 4 * * * /root/recipes/jail-pairing off 2>&1 | logger -t jail-pairing

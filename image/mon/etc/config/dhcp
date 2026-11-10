@@ -61,6 +61,34 @@ config host
 	option duid '00010001c792bc8adca63208dbfe'
 	option hostid 'bead'
 
+# The jail's devices, named so dnsmasq serves them as <name>.lan, and fixed so
+# DHCP does not shuffle their addresses. The iPad is not here: iOS rotates its
+# private address, so a lease keyed on it would rot.
+config host
+	option name 'switch2'
+	option mac 'b8:68:70:7c:e7:6c'
+	option ip '10.10.1.101'
+
+config host
+	option name 'switch1'
+	option mac 'a4:38:cc:2c:e5:fb'
+	option ip '10.10.1.120'
+
+config host
+	option name 'doorbell'
+	option mac '20:4e:f6:3a:2b:49'
+	option ip '10.10.1.130'
+
+config host
+	option name 'aircon'
+	option mac '28:c1:3c:78:4b:54'
+	option ip '10.10.1.131'
+
+config host
+	option name 'scale'
+	option mac '00:24:e4:1b:68:ac'
+	option ip '10.10.1.133'
+
 config dhcp 'lan'
 	option interface 'lan'
 	option dhcpv4 'disabled'

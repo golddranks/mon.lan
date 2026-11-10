@@ -1,0 +1,72 @@
+#!/bin/sh
+# jail-pairing on|off - open the jail for a device that pairs by WPS button.
+#
+# `on` drops client isolation, enables WPS and arms a two-minute push-button
+# window (push-button only, so no PIN to guess); `off` puts both back.
+#
+# The IoT air conditioner in SkeletorJail needed exactly this functionality,
+# and nothing else uses either.
+#
+# The reload touches only the changed WiFi endpoint, but the jail's clients
+# re-associate and a slow one can take two minutes.
+#
+# Isolation disabled and WPS enabled isn't ideal for security,
+# so cron runs `off` at 04:35.
+set -u
+
+case "${1:-}" in
+on)
+	isolate=0
+	wps=1
+	;;
+off)
+	isolate=1
+	wps=0
+	;;
+*)
+	echo "usage: ${0##*/} on|off" >&2
+	exit 2
+	;;
+esac
+
+iface=phy0-ap1
+
+if [ "$1" = off ]; then
+	hostapd_cli -i "$iface" wps_cancel >/dev/null 2>&1
+fi
+
+uci set wireless.jail_radio0.isolate="$isolate" || exit 1
+uci set wireless.jail_radio0.wps_pushbutton="$wps" || exit 1
+
+# An unchanged value leaves nothing pending, so there is nothing to reload.
+# `wifi reload` affects only the WiFi endpoints whose settings actually changed,
+# so the main SSID, Skeletor, is unaffected.
+changed=
+if [ -n "$(uci changes wireless)" ]; then
+	uci commit wireless || exit 1
+	wifi reload || exit 1
+	changed=1
+fi
+
+if [ "$1" = off ]; then
+	[ -n "$changed" ] && echo "jail closed: isolate=$isolate wps=$wps"
+	exit 0
+fi
+
+# wifi reload returns before hostapd has the BSS back.
+tries=0
+until hostapd_cli -i "$iface" ping >/dev/null 2>&1; do
+	tries=$((tries + 1))
+	[ "$tries" -ge 20 ] && {
+		echo "${0##*/}: $iface did not come up" >&2
+		exit 1
+	}
+	sleep 1
+done
+
+out=$(hostapd_cli -i "$iface" wps_pbc 2>&1)
+[ "$out" = OK ] || { echo "${0##*/}: $iface refused PBC: $out" >&2; exit 1; }
+
+echo "isolate=$isolate wps=$wps, push-button window armed for two minutes"
+echo "press the device's WPS button, then run '${0##*/} off'."
+hostapd_cli -i "$iface" wps_get_status

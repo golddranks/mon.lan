@@ -31,10 +31,10 @@ image through the ImageBuilder's `FILES` overlay.
   `bead.drasa.eu` and `llm.drasa.eu` (bead's LLM vhost): static ULA entries,
   the `drasa.eu` ones published publicly for the certificate.
 - **Jail**: `SkeletorJail` on radio0 (2.4 GHz) over `br-iot`, `10.10.1.1/24`,
-  DHCPv4 and masquerade to the WAN, no IPv6 - for devices that cannot use the
-  IPv6-only LAN.
-- **Wireless**: one SSID on both bands (ch 1 / 36, `JP`, WPA2-PSK from
-  `secrets.sed`), 802.11r (`mobility_domain cc66`, `ft_psk_generate_local`) and
+  DHCPv4 and masquerade to the WAN, no IPv6, WPA2/WPA3 mixed and client
+  isolation - for devices that cannot use the IPv6-only LAN or WPA3.
+- **Wireless**: one SSID on both bands (ch 1 / 36, `JP`, WPA3-SAE with the PSK
+  from `secrets.sed`, PMF required), 802.11r (`mobility_domain cc66`) and
   802.11k/v, which need `wpad-mbedtls`; `usteer` steers over IPv6.
 - **LuCI** on nginx via uwsgi: `_lan` is a LAN-only default_server with a
   self-signed cert, `mon.drasa.eu` carries Let's Encrypt issued over DNS-01
@@ -101,15 +101,15 @@ contain baked credentials.
 ## Recipes
 
 `/root/recipes/` holds small scripts for problems that come up. They ship with
-the image and do one thing each. The first is `set-lan-prefix <prefix>/64`,
-which sets the LAN GUA and its source route and reloads odhcpd; run it when
-`netdiag` reports `lan-sourced egress` failing.
+the image and do one thing each. `set-lan-prefix <prefix>/64` sets the LAN GUA
+and its source route and reloads odhcpd; run it when `netdiag` reports
+`lan-sourced egress` failing. `jail-pairing on|off` opens the jail for a device
+that pairs by WPS button - isolation off, WPS on, push-button window armed - and
+closes it again once the device is registered; cron closes it at 04:35 either
+way, so one left open overnight does not stay open.
 
 ## Not yet implemented
 
-- **The jail reaches no further than mon's 2.4 GHz radio.** ban cannot carry it
-  without a VLAN across the uplink cable, and WPS push-button pairing (for the
-  A/C and doorbell, which have no usable keyboard) is not enabled.
 - **WireGuard, in its final form.** The throwaway server was removed. It needed
   an init script because netifd here starts before `wireguard-tools` exists, so
   `proto wireguard` is unknown and `ifup` returns NO_DEVICE; baking the packages

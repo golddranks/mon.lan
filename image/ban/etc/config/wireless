@@ -9,13 +9,14 @@
 # board DTS labels its LEDs phy0tpt = 5 GHz, phy1tpt = 2.4 GHz).
 #
 # Same SSID and key as mon, so clients move between the two APs on their own.
-# 802.11r is on with mon's mobility domain; the FT keys are derived from the
-# shared PSK. 802.11k/v are on too, backed by usteer. Channels are offset from
-# mon (2.4 GHz: 1 vs 6, 5 GHz: 36 vs 52) so the APs do not sit on top of each
-# other. 52 is a DFS channel, so the 5 GHz radio waits out the channel
+# 802.11r is on with mon's mobility domain; the FT keys come from the SAE
+# password via that domain, so both APs derive the same keys without
+# exchanging them. 802.11k/v are on too, backed by usteer. Channels are offset
+# from mon (2.4 GHz: 1 vs 6, 5 GHz: 36 vs 52) so the APs do not sit on top of
+# each other. 52 is a DFS channel, so the 5 GHz radio waits out the channel
 # availability check before it starts.
 #
-# The PSK is baked from secrets.sed (@WIFI_PW@).
+# The key is baked from secrets.sed.
 
 config wifi-device 'radio0'
 	option type 'mac80211'
@@ -30,12 +31,12 @@ config wifi-iface 'default_radio0'
 	option network 'lan'
 	option mode 'ap'
 	option ssid 'Skeletor'
-	option encryption 'psk2'
+	option encryption 'sae'
 	option key '@WIFI_PW@'
+	option ieee80211w '2'
 	option ieee80211r '1'
 	option mobility_domain '@FT_MDID@'
 	option ft_over_ds '1'
-	option ft_psk_generate_local '1'
 	option ieee80211k '1'
 	option ieee80211v '1'
 
@@ -52,11 +53,11 @@ config wifi-iface 'default_radio1'
 	option network 'lan'
 	option mode 'ap'
 	option ssid 'Skeletor'
-	option encryption 'psk2'
+	option encryption 'sae'
 	option key '@WIFI_PW@'
+	option ieee80211w '2'
 	option ieee80211r '1'
 	option mobility_domain '@FT_MDID@'
 	option ft_over_ds '1'
-	option ft_psk_generate_local '1'
 	option ieee80211k '1'
 	option ieee80211v '1'
