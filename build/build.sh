@@ -157,32 +157,33 @@ wget -q -O "${FILES_DIR}/etc/dropbear/authorized_keys" "${PUBKEYS_URL}" || true
 chmod 700 "${FILES_DIR}/etc/dropbear"
 chmod 600 "${FILES_DIR}/etc/dropbear/authorized_keys"
 
-# --- LAN probe key ----------------------------------------------------------
-# netdiag checks the NAT64 datapath from ban, because Jool only translates
-# forwarded traffic and the router cannot exercise its own translation. The key
-# pair lives in secrets/probe/ (gitignored) and is split across the two images:
-# mon gets the private half, ban authorizes the public half.
-PROBE_KEY="${REPO_DIR}/secrets/probe/id_ed25519"
-if [ -f "${PROBE_KEY}" ]; then
+# --- ghost key --------------------------------------------------------------
+# mon's identity wherever it has to run something off the router: the NAT64
+# datapath check and the certificate push on ban, and probes from the NixOS
+# hosts, where it logs in as the unprivileged ghost user. The pair lives in
+# secrets/ghost/ (gitignored) and is split across the images: mon gets the
+# private half, ban authorizes the public half.
+GHOST_KEY="${REPO_DIR}/secrets/ghost/id_ed25519"
+if [ -f "${GHOST_KEY}" ]; then
 	case "${DEVICE}" in
 	mon)
 		install -d -m 700 "${FILES_DIR}/root/.ssh"
-		install -m 600 "${PROBE_KEY}" "${FILES_DIR}/root/.ssh/id_ed25519"
+		install -m 600 "${GHOST_KEY}" "${FILES_DIR}/root/.ssh/id_ed25519"
 		;;
 	ban)
-		[ -f "${PROBE_KEY}.pub" ] || {
-			echo "${PROBE_KEY}.pub is missing; create it with:" >&2
-			echo "  ssh-keygen -y -f ${PROBE_KEY} > ${PROBE_KEY}.pub" >&2
+		[ -f "${GHOST_KEY}.pub" ] || {
+			echo "${GHOST_KEY}.pub is missing; create it with:" >&2
+			echo "  ssh-keygen -y -f ${GHOST_KEY} > ${GHOST_KEY}.pub" >&2
 			exit 1
 		}
-		_keys="${FILES_DIR}/etc/dropbear/authorized_keys"
-		[ -s "${_keys}" ] || {
-			echo "${_keys} is empty or absent; refusing to bake a ban image" >&2
-			echo "that no key could reach" >&2
-			exit 1
-		}
-		[ -n "$(tail -c 1 "${_keys}")" ] && echo >> "${_keys}"
-		awk '{ print $1, $2, "probe@mon" }' "${PROBE_KEY}.pub" >> "${_keys}"
+		# ban runs mon's probes as the unprivileged ghost user (created at
+		# first boot from /etc/ghost), so the key goes there and never into
+		# the global authorized_keys, which is root's.
+		mkdir -p "${FILES_DIR}/etc/ghost"
+		awk '{ print "no-pty,no-port-forwarding,no-agent-forwarding,no-x11-forwarding", $1, $2, "ghost@mon" }' \
+			"${GHOST_KEY}.pub" > "${FILES_DIR}/etc/ghost/authorized_keys"
+		chmod 700 "${FILES_DIR}/etc/ghost"
+		chmod 600 "${FILES_DIR}/etc/ghost/authorized_keys"
 		;;
 	esac
 fi

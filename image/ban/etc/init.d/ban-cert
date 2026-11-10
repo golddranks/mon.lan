@@ -1,0 +1,14 @@
+#!/bin/sh /etc/rc.common
+# Install the certificate pair ghost stages, checking once a minute.
+# Why service and not cron: busybox crond logs every job start at err level,
+# and its -l option only adds verbosity, never hides that line.
+START=95
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /bin/sh -c \
+		'while :; do /usr/libexec/ban-cert-install; sleep 60; done'
+	procd_set_param respawn
+	procd_close_instance
+}

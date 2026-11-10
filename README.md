@@ -50,8 +50,9 @@ A dumb AP: it bridges, nothing else.
   ignores their prefix information, so it forms no GUA — nothing on ban is
   reachable through a routed prefix — and the netdiag datapath probe sources
   from the ULA. No `dnsmasq`/`odhcpd`: mon is the only DHCP, RA and DNS server.
-- Stock LuCI; it serves a Let's Encrypt certificate. SSH key-only; time from
-  mon. Offset channels (2.4 GHz: 6, 5 GHz: 52 — DFS).
+- Stock LuCI; it serves a Let's Encrypt certificate, staged by mon over the
+  ghost key and installed by root's cron. SSH key-only: root for you, `ghost`
+  for mon's probes; time from mon. Offset channels (2.4 GHz: 6, 5 GHz: 52 — DFS).
 
 ## Layout and building
 

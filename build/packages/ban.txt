@@ -20,3 +20,9 @@ luci-ssl
 wpad-mbedtls
 # Steering and neighbour-report sync between the APs (see /etc/config/usteer).
 usteer
+
+# --- Unprivileged probes ----------------------------------------------------
+# busybox ping is raw-socket only and refuses non-root; iputils' ping uses ICMP
+# datagram sockets, which the ping group range in
+# /etc/sysctl.d/20-ping-group.conf allows for ghost.
+iputils-ping

@@ -1,0 +1,29 @@
+#!/bin/sh
+# Create the unprivileged ghost account used for probes and for staging the TLS
+# certificate. The image has no adduser, and replacing /etc/passwd through the
+# overlay would hide users added by packages, so append at first boot.
+grep -q '^ghost:' /etc/passwd && exit 0
+
+# 1000 must be free; if a package ever takes it, stop rather than collide.
+if grep -q ':1000:' /etc/passwd /etc/group; then
+	echo "99-ghost-user: uid/gid 1000 is taken; ghost was not created" >&2
+	exit 1
+fi
+
+[ -s /etc/ghost/authorized_keys ] || {
+	echo "99-ghost-user: no baked key at /etc/ghost/authorized_keys" >&2
+	exit 1
+}
+
+echo 'ghost:x:1000:1000:ghost:/home/ghost:/bin/ash' >> /etc/passwd
+echo 'ghost:!:19000:0:99999:7:::' >> /etc/shadow
+echo 'ghost:x:1000:' >> /etc/group
+
+mkdir -p /home/ghost/.ssh /home/ghost/incoming
+cp /etc/ghost/authorized_keys /home/ghost/.ssh/authorized_keys
+chown -R 1000:1000 /home/ghost
+chmod 700 /home/ghost /home/ghost/.ssh /home/ghost/incoming
+chmod 600 /home/ghost/.ssh/authorized_keys
+rm -rf /etc/ghost
+
+exit 0

@@ -56,6 +56,17 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   restarts the instance. The box is up, the web UI is up, port 22 is refused.
 - **Recovery without a shell: LuCI → System → Startup → dropbear → Restart.**
   It works because `lan` is up again by the time you click it.
+- **authorized_keys options are ignored for root.** `command=` in root's
+  per-user file and in the global `/etc/dropbear/authorized_keys` was ignored -
+  the client's command ran - while the same option worked for a non-root user.
+  A privileged key cannot be scoped that way; scope an unprivileged account and
+  have root pick up what it stages.
+- **Deleting a host key file does not stop dropbear offering it.** OpenWrt's
+  `/etc/init.d/dropbear` generates any of `ed25519 ecdsa rsa` whose file is
+  missing, on every start, and with no `-r` dropbear loads every default key in
+  `/etc/dropbear`. Only `list keyfile` in `/etc/config/dropbear` binds the
+  server to named keys. ECDSA is not compiled into this build, so its
+  generation fails and the type simply never exists.
 - **`/etc/init.d/dropbear restart` can silently no-op.** We found two live
   servers with different argv and an unchanged pid file after "restarting" it.
   Verify with `ps`, not with the init script's exit status.
@@ -175,6 +186,10 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
 
 ## Builds
 
+- **The overlay cannot contain symlinks.** Lima mounts `$HOME` over sshfs, and
+  the guest cannot `readlink` anything in it (`Operation not permitted`), so
+  `cp -a` of the overlay dies on the first symlink. Enable a service with
+  uci-defaults instead of shipping `etc/rc.d`.
 - **The ImageBuilder checksum pins the target payload, not the package set.**
   The architecture feeds (`base`, `luci`, `packages`) are fetched at build time
   and updated in place: `luci` moved from `26.304.26398` to `26.312.33065` and
@@ -182,6 +197,20 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   with the same package count. `build/manifests/<device>.manifest` records what
   was accepted, so the next build reports the difference instead of shipping it
   silently.
+
+## Unprivileged probes
+
+- **busybox ping is raw-socket only.** It refuses non-root even when
+  `net.ipv4.ping_group_range` covers the user's gid; iputils' ping uses ICMP
+  datagram sockets and works with the range.
+
+## Cron
+
+- **busybox crond cannot be quiet.** Every job start is logged at `err`
+  (`USER root pid N cmd ...`) and `-l` cannot hide it: 0-4 add debug lines
+  (`wakeup`, `file`, `job:`, `child running`), 5-8 print the same job line. A
+  per-minute job is therefore ~144 KB/day of log in a 64 KiB ring. Reaching for
+  a procd loop instead costs nothing.
 
 ## Method
 

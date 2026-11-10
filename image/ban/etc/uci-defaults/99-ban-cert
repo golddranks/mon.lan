@@ -1,0 +1,5 @@
+#!/bin/sh
+# A service that ships as files has no rc.d entry; enable it here so the boot
+# sequence starts it. uci-defaults run before any service does, so the symlink
+# exists by the time S95ban-cert would be reached.
+/etc/init.d/ban-cert enable

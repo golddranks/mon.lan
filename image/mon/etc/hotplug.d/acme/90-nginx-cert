@@ -3,16 +3,18 @@
 # changes. Put each one where its device expects it.
 #
 # mon.drasa.eu is mon's own nginx vhost. ban.drasa.eu belongs to the dumb AP,
-# which runs no ACME of its own, so it is handed over the ssh key ban already
-# authorizes for netdiag's datapath probe. If the push fails, ban keeps the
-# certificate it has and picks up the new one at the next renewal or flash.
+# which runs no ACME of its own, so the pair is staged in ghost's directory over
+# the ghost key; ban's root cron installs it within a minute. ghost cannot write
+# /etc/uhttpd.*, and a failed push leaves ban with the certificate it has until
+# the next renewal or flash.
 
 [ "$ACTION" = issued ] || [ "$ACTION" = renewed ] || exit 0
 
 src=/etc/ssl/acme
 ban_host=fd42:6d6f:6e00::2
 ban_key=/root/.ssh/id_ed25519
-ban_ssh="ssh -T -o BatchMode=yes -i $ban_key root@$ban_host"
+ban_ssh="ssh -T -o BatchMode=yes -i $ban_key ghost@$ban_host"
+ban_dir=/home/ghost/incoming
 
 if [ -s "$src/mon.drasa.eu.fullchain.crt" ] && [ -s "$src/mon.drasa.eu.key" ]; then
 	mkdir -p /etc/ssl/nginx
@@ -23,10 +25,9 @@ if [ -s "$src/mon.drasa.eu.fullchain.crt" ] && [ -s "$src/mon.drasa.eu.key" ]; t
 fi
 
 if [ -s "$src/ban.drasa.eu.fullchain.crt" ] && [ -s "$src/ban.drasa.eu.key" ]; then
-	$ban_ssh 'cat > /etc/uhttpd.crt' < "$src/ban.drasa.eu.fullchain.crt" &&
-		$ban_ssh 'cat > /etc/uhttpd.key && chmod 600 /etc/uhttpd.key' \
-			< "$src/ban.drasa.eu.key" &&
-		$ban_ssh '/etc/init.d/uhttpd reload'
+	$ban_ssh "cat > $ban_dir/fullchain.crt" < "$src/ban.drasa.eu.fullchain.crt" &&
+		$ban_ssh "cat > $ban_dir/key" < "$src/ban.drasa.eu.key" &&
+		$ban_ssh "touch $ban_dir/ready"
 fi
 
 exit 0

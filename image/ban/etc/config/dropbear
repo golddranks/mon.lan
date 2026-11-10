@@ -3,3 +3,8 @@
 # still authenticates against /etc/shadow.
 config dropbear
 	option PasswordAuth 'off'
+	# Only the ed25519 host key is offered. dropbear loads every key it finds
+	# in /etc/dropbear unless given -r, and the init generates a missing type
+	# on every start, so leaving the RSA file out would not keep RSA off the
+	# wire.
+	list keyfile '/etc/dropbear/dropbear_ed25519_host_key'

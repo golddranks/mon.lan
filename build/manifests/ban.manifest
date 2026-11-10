@@ -11,6 +11,7 @@ fstools - 2026.05.23~16718b6e-r1
 fwtool - 2025.10.03~04cd252e-r1
 getrandom - 2025.10.30~6f78fa49-r1
 hostapd-common - 2025.08.26~ca266cc2-r7
+iputils-ping - 20250605-r1
 iw - 6.17-r1
 jansson4 - 2.14.1-r1
 jshn - 2026.11.02~ff13b89e-r1
@@ -33,6 +34,7 @@ kmod-crypto-ghash - 6.12.112-r1
 kmod-crypto-hash - 6.12.112-r1
 kmod-crypto-hmac - 6.12.112-r1
 kmod-crypto-manager - 6.12.112-r1
+kmod-crypto-md5 - 6.12.112-r1
 kmod-crypto-null - 6.12.112-r1
 kmod-crypto-rng - 6.12.112-r1
 kmod-crypto-seqiv - 6.12.112-r1

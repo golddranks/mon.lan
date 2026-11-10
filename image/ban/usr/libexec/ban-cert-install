@@ -1,0 +1,22 @@
+#!/bin/sh
+# Install the certificate pair ghost staged in /home/ghost/incoming. The
+# ban-cert service runs this every minute; without the ready marker it does
+# nothing, so a half-copied pair is never installed.
+#
+# This is the only thing ghost's files are allowed to change: two fixed paths,
+# checked to be a PEM pair first.
+set -u
+dir=/home/ghost/incoming
+
+[ -f "$dir/ready" ] || exit 0
+[ -s "$dir/fullchain.crt" ] && [ -s "$dir/key" ] || exit 0
+
+grep -q 'BEGIN CERTIFICATE' "$dir/fullchain.crt" || exit 1
+grep -q 'BEGIN .*PRIVATE KEY' "$dir/key" || exit 1
+
+cp "$dir/fullchain.crt" /etc/uhttpd.crt && chmod 644 /etc/uhttpd.crt || exit 1
+cp "$dir/key" /etc/uhttpd.key && chmod 600 /etc/uhttpd.key || exit 1
+rm -f "$dir/ready" "$dir/fullchain.crt" "$dir/key"
+
+logger -t ban-cert "installed the staged certificate pair"
+/etc/init.d/uhttpd reload
