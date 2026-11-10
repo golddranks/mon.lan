@@ -261,6 +261,28 @@ find "bin/targets/${TARGET_PATH}" -maxdepth 1 -type f \
 	-exec cp -a {} "${OUT_DIR}/targets/" \;
 cp -a "${FILES_DIR}" "${OUT_DIR}/files"
 
+# --- package set ------------------------------------------------------------
+# The ImageBuilder tarball is pinned by checksum, but the package feeds are not:
+# they are fetched at build time and updated in place (luci and uhttpd moved
+# between two builds a day apart). The recorded manifest is the lock, so a build
+# that resolves different versions stops here instead of shipping them silently.
+MANIFEST="${SCRIPT_DIR}/manifests/${DEVICE}.manifest"
+built_manifest=$(find "${OUT_DIR}/targets" -maxdepth 1 -name '*.manifest' | head -n 1)
+if [ -n "${built_manifest}" ] && [ -f "${MANIFEST}" ]; then
+	if ! diff -u "${MANIFEST}" "${built_manifest}" >"${BUILD_DIR}/manifest.diff"; then
+		echo "ERROR: resolved package versions differ from ${MANIFEST}:" >&2
+		cat "${BUILD_DIR}/manifest.diff" >&2
+		echo >&2
+		echo "The image in ${OUT_DIR} is built from this set. If the change is" >&2
+		echo "acceptable, record it and keep the image; no rebuild is needed:" >&2
+		echo "  cp '${built_manifest}' '${MANIFEST}'" >&2
+		exit 1
+	fi
+elif [ -n "${built_manifest}" ]; then
+	echo "NOTE: no ${MANIFEST}; record the package set with:" >&2
+	echo "  cp '${built_manifest}' '${MANIFEST}'" >&2
+fi
+
 echo
 echo "==> ${DEVICE} artifacts in ${OUT_DIR}:"
 find "${OUT_DIR}/targets" -maxdepth 1 -type f

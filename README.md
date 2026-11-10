@@ -60,6 +60,7 @@ build/nix-run.sh        enter the pinned environment, then ./lima-run.sh
 build/lima-run.sh       start the Linux VM and run build.sh in it
 build/build.sh          build one device
 build/packages/         packages to bake in ('-name' removes a default)
+build/manifests/        resolved package sets; a build fails if one changes
 build/vars.sed          values substituted into the overlay (@ULA@, @FT_MDID@)
 build/flake.nix         pinned lima (qemu x86_64) environment
 image/mon/  image/ban/  rootfs overlays, with @TOKEN@ placeholders
@@ -75,6 +76,11 @@ cp ../secrets.sed.example ../secrets.sed   # fill in every token
 `build.sh` downloads a pinned ImageBuilder, renders the overlay
 (`build/vars.sed`, then `secrets.sed`), fetches `authorized_keys` from the
 `pubkeys` repo and runs `make image`. The images contain baked credentials.
+
+The ImageBuilder tarball is pinned by checksum; the release package feeds are
+not. They are fetched at build time and change in place, so each device's
+resolved package set is recorded under `build/manifests/`, and a build that
+resolves different versions fails until the diff is reviewed and recorded.
 
 ## Flashing
 

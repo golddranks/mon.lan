@@ -173,6 +173,16 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   autoconf away and DISCOVERs again every 30 s. The jail exists for that class of
   device.
 
+## Builds
+
+- **The ImageBuilder checksum pins the target payload, not the package set.**
+  The architecture feeds (`base`, `luci`, `packages`) are fetched at build time
+  and updated in place: `luci` moved from `26.304.26398` to `26.312.33065` and
+  `uhttpd` from `2026.08.24` to `2026.11.05` between two builds a day apart,
+  with the same package count. `build/manifests/<device>.manifest` records what
+  was accepted, so the next build reports the difference instead of shipping it
+  silently.
+
 ## Method
 
 - **`sysupgrade -n` throws away `/etc/acme`, so every flash is a new issuance.**
