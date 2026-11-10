@@ -1,11 +1,18 @@
-# Let's Encrypt certificate for mon.drasa.eu, issued over DNS-01 (a TXT record
-# via the Gandi API) - no inbound HTTP, nothing exposed to the WAN.
+# Let's Encrypt certificates, issued over DNS-01 (a TXT record via the Gandi
+# API) - no inbound HTTP, nothing exposed to the WAN.
+#
+#   mon.drasa.eu  mon's own LuCI vhost, served by nginx
+#   ban.drasa.eu  ban's LuCI, served by uhttpd on the dumb AP
+#
+# They are separate certificates on purpose: a shared one would put a key valid
+# for mon.drasa.eu into ban's overlay, and ban is the box most likely to be
+# physically handled and reflashed.
 #
 # The admin e-mail (Let's Encrypt account, and the recipient of the router's
 # own reports) and the Gandi token both come from secrets.sed. acme.sh writes
-# the certificate under /etc/acme/ and acme-common links it into
-# /etc/ssl/acme/; the hotplug script /etc/hotplug.d/acme/90-nginx-cert copies it
-# where nginx expects it and reloads nginx.
+# the certificates under /etc/acme/ and acme-common links them into
+# /etc/ssl/acme/; the hotplug script /etc/hotplug.d/acme/90-nginx-cert puts each
+# where its device expects it - nginx on mon, uhttpd on ban.
 #
 # Certificates come from Let's Encrypt production. acme-common only schedules
 # nightly renewals, so /etc/hotplug.d/iface/90-acme kicks off the first
@@ -19,6 +26,14 @@ config cert 'mon_drasa'
 	option enabled 1
 	option staging 0
 	list domains 'mon.drasa.eu'
+	option validation_method 'dns'
+	option dns 'dns_gandi_livedns'
+	list credentials 'GANDI_LIVEDNS_TOKEN="@GANDI_API_KEY@"'
+
+config cert 'ban_drasa'
+	option enabled 1
+	option staging 0
+	list domains 'ban.drasa.eu'
 	option validation_method 'dns'
 	option dns 'dns_gandi_livedns'
 	list credentials 'GANDI_LIVEDNS_TOKEN="@GANDI_API_KEY@"'

@@ -52,7 +52,14 @@ PUBKEYS_URL="https://raw.githubusercontent.com/golddranks/pubkeys/main/authorize
 
 # --- build dependencies ----------------------------------------------------
 sudo apt-get install -y build-essential file libncurses-dev zlib1g-dev gawk git \
-	libssl-dev xsltproc rsync wget unzip python3 python3-setuptools zstd
+	libssl-dev xsltproc rsync wget unzip python3 python3-setuptools zstd acme.sh
+
+# --- certificate seed ------------------------------------------------------
+# The image carries a current certificate so that a flash does not spend one of
+# Let's Encrypt's five issuances per 168 hours for the same name. prepare-cert
+# issues through DNS-01 when the seed is inside 30 days of expiry and does
+# nothing otherwise; the router keeps renewing its own certificate afterwards.
+"${SCRIPT_DIR}/prepare-cert.sh" "${DEVICE}"
 
 # --- secrets ---------------------------------------------------------------
 if [ ! -f "${SECRETS}" ]; then
@@ -180,17 +187,63 @@ if [ -f "${PROBE_KEY}" ]; then
 	esac
 fi
 
-# --- Let's Encrypt state ----------------------------------------------------
-# `sysupgrade -n` wipes /etc/acme and the deployed certificate, so the box treats
-# every flash as a cold start and issues again - and Let's Encrypt allows five
-# certificates per 168 hours for the same set of names, which a day of flashing
-# exhausts. With a snapshot present the image serves a valid certificate from the
-# first boot and `acme renew` finds nothing due, so no issuance is spent. Refresh
-# the tarball after a renewal (see README).
-ACME_TAR="${REPO_DIR}/secrets/${DEVICE}/acme.tar"
-if [ -f "${ACME_TAR}" ]; then
-	tar -C "${FILES_DIR}" -xf "${ACME_TAR}"
-fi
+# --- Let's Encrypt certificates ---------------------------------------------
+# `sysupgrade -n` wipes /etc, so the image carries what build/prepare-cert.sh
+# seeded in secrets/tls. For mon the certificate alone is not enough: acme-common
+# decides between renew and issue by whether /etc/acme/<name>_ecc exists, never
+# by the certificate the service loads, so an image with the certificate but no
+# store still issues on first boot. Both halves are baked.
+# A missing seed is a warning, not an error.
+CERT_DIR="${REPO_DIR}/secrets/tls"
+ACME_HOME="${SCRIPT_DIR}/.acme"
+case "${DEVICE}" in
+mon)
+	NGINX_SSL="${FILES_DIR}/etc/ssl/nginx"
+	if [ -s "${CERT_DIR}/mon.drasa.eu.crt" ] && [ -s "${CERT_DIR}/mon.drasa.eu.key" ]; then
+		mkdir -p "${NGINX_SSL}"
+		cp "${CERT_DIR}/mon.drasa.eu.crt" "${NGINX_SSL}/mon.drasa.eu.crt"
+		cp "${CERT_DIR}/mon.drasa.eu.key" "${NGINX_SSL}/mon.drasa.eu.key"
+		chmod 600 "${NGINX_SSL}/mon.drasa.eu.key"
+	else
+		echo "WARNING: baking no certificate; mon serves the self-signed placeholder until it issues its own." >&2
+	fi
+
+	# acme.sh's own store, which is what decides renew vs issue. Only names whose
+	# certificate is also being baked are taken, so a name that failed to seed
+	# cannot make the image look as if it already had one.
+	for name in mon.drasa.eu ban.drasa.eu; do
+		[ -s "${CERT_DIR}/${name}.crt" ] || continue
+		[ -s "${ACME_HOME}/${name}_ecc/${name}.cer" ] || {
+			echo "WARNING: ${name}: no issued store in ${ACME_HOME}; the box issues on first boot." >&2
+			continue
+		}
+		mkdir -p "${FILES_DIR}/etc/acme"
+		cp -a "${ACME_HOME}/${name}_ecc" "${FILES_DIR}/etc/acme/"
+		# acme.sh records the builder's paths in its config file as the cert
+		# install location. Those paths don't exist on the router, so delete
+		# those lines from the config file, and let OpenWrt's wrapper do the
+		# install.
+		sed -i '/^Le_Real[A-Za-z]*Path=/d' \
+			"${FILES_DIR}/etc/acme/${name}_ecc/${name}.conf"
+	done
+	# Only the per-name directories and the account under ca/: account.conf
+	# holds the build host's PATH and saved environment, which acme-common
+	# supplies itself on the router.
+	if [ -d "${FILES_DIR}/etc/acme" ]; then
+		cp -a "${ACME_HOME}/ca" "${FILES_DIR}/etc/acme/"
+		find "${FILES_DIR}/etc/acme" -name account.key -exec chmod 600 {} +
+	fi
+	;;
+ban)
+	# When present this overrides the self-signed pair copied above from
+	# secrets/ban; when absent the self-signed pair is the intended fallback.
+	if [ -s "${CERT_DIR}/ban.drasa.eu.crt" ] && [ -s "${CERT_DIR}/ban.drasa.eu.key" ]; then
+		cp "${CERT_DIR}/ban.drasa.eu.crt" "${FILES_DIR}/etc/uhttpd.crt"
+		cp "${CERT_DIR}/ban.drasa.eu.key" "${FILES_DIR}/etc/uhttpd.key"
+		chmod 600 "${FILES_DIR}/etc/uhttpd.key"
+	fi
+	;;
+esac
 
 # --- build -----------------------------------------------------------------
 cd "${BUILD_DIR}/${IB_NAME}"

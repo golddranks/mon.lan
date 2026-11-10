@@ -4,3 +4,4 @@ secrets/
 
 # build artifacts
 build/.work/
+build/.acme/

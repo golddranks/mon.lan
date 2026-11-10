@@ -1,20 +1,32 @@
 #!/bin/sh
 # acme-common fires this (ACTION=issued | renewed) whenever a certificate
-# changes. Put the Let's Encrypt certificate where nginx expects it and reload.
+# changes. Put each one where its device expects it.
+#
+# mon.drasa.eu is mon's own nginx vhost. ban.drasa.eu belongs to the dumb AP,
+# which runs no ACME of its own, so it is handed over the ssh key ban already
+# authorizes for netdiag's datapath probe. If the push fails, ban keeps the
+# certificate it has and picks up the new one at the next renewal or flash.
 
 [ "$ACTION" = issued ] || [ "$ACTION" = renewed ] || exit 0
 
 src=/etc/ssl/acme
-dst=/etc/ssl/nginx
+ban_host=fd42:6d6f:6e00::2
+ban_key=/root/.ssh/id_ed25519
+ban_ssh="ssh -T -o BatchMode=yes -i $ban_key root@$ban_host"
 
-[ -s "$src/mon.drasa.eu.fullchain.crt" ] || exit 0
-[ -s "$src/mon.drasa.eu.key" ] || exit 0
+if [ -s "$src/mon.drasa.eu.fullchain.crt" ] && [ -s "$src/mon.drasa.eu.key" ]; then
+	mkdir -p /etc/ssl/nginx
+	cp "$src/mon.drasa.eu.fullchain.crt" /etc/ssl/nginx/mon.drasa.eu.crt
+	cp "$src/mon.drasa.eu.key" /etc/ssl/nginx/mon.drasa.eu.key
+	chmod 600 /etc/ssl/nginx/mon.drasa.eu.key
+	/etc/init.d/nginx reload
+fi
 
-mkdir -p "$dst"
-cp "$src/mon.drasa.eu.fullchain.crt" "$dst/mon.drasa.eu.crt"
-cp "$src/mon.drasa.eu.key" "$dst/mon.drasa.eu.key"
-chmod 600 "$dst/mon.drasa.eu.key"
-
-/etc/init.d/nginx reload
+if [ -s "$src/ban.drasa.eu.fullchain.crt" ] && [ -s "$src/ban.drasa.eu.key" ]; then
+	$ban_ssh 'cat > /etc/uhttpd.crt' < "$src/ban.drasa.eu.fullchain.crt" &&
+		$ban_ssh 'cat > /etc/uhttpd.key && chmod 600 /etc/uhttpd.key' \
+			< "$src/ban.drasa.eu.key" &&
+		$ban_ssh '/etc/init.d/uhttpd reload'
+fi
 
 exit 0
