@@ -1,0 +1,4 @@
+#!/bin/sh
+# Peers on the WireGuard interfaces live in /etc/wireguard/<interface>.tsv; this
+# applies them at first boot, before netifd starts. Run the script it calls.
+/usr/libexec/wireguard-peers

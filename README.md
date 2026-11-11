@@ -16,6 +16,11 @@ time.
 - **NAT64 + DNS64**: IPv4-only destinations are reachable from the IPv6-only
   LAN; unbound synthesises the AAAA and Jool translates to the WAN address, and
   some clients build their own CLAT (464XLAT).
+- **VPN**: two WireGuard interfaces. `SkeletoriLanVPN` is a second /64 in the
+  ULA, forwarded to the LAN with no NAT, for reaching LAN hosts from anywhere;
+  `SkeletoriJailVPN` is IPv4-only, NATted to the WAN and has no route to the
+  LAN, for browsing as if from home. Peers live in `/etc/wireguard/<interface>.tsv`
+  and are added to their interfaces at first boot.
 - **DDNS** (Gandi): A + AAAA for `bitwarden`, `syncthing`, `webshare`, `cafe`;
   AAAA only for `bead` and `llm`. The AAAA is the host's LAN address.
 - Inbound TCP 22/80/443 is forwarded to LAN hosts while the router's own input
@@ -103,7 +108,5 @@ registered; cron closes it at 04:35 either way.
 
 ## Not yet implemented
 
-- **WireGuard.** Not yet done: bake the packages into the image, and work out a
-  manageable way to add peers.
 - **Smarter monitoring.** The checks are written by hand; a pass over what they
   collect could catch combinations nobody thought to check for.

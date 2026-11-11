@@ -92,6 +92,12 @@ if [ -f "${FILES_DIR}/etc/msmtprc" ]; then
 	chmod 600 "${FILES_DIR}/etc/msmtprc"
 fi
 
+# The network config carries the WireGuard private keys, so it cannot be
+# world-readable.
+if [ -f "${FILES_DIR}/etc/config/network" ]; then
+	chmod 600 "${FILES_DIR}/etc/config/network"
+fi
+
 # --- validate secrets ------------------------------------------------------
 # The root password hash is opaque, so a typo in it is invisible in a diff and
 # `crypt()` will simply never match - silently locking you out of the device.

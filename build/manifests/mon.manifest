@@ -49,6 +49,11 @@ kmod-crypto-ghash - 6.12.112-r1
 kmod-crypto-hash - 6.12.112-r1
 kmod-crypto-hmac - 6.12.112-r1
 kmod-crypto-hw-safexcel - 6.12.112-r1
+kmod-crypto-kpp - 6.12.112-r1
+kmod-crypto-lib-chacha20 - 6.12.112-r1
+kmod-crypto-lib-chacha20poly1305 - 6.12.112-r1
+kmod-crypto-lib-curve25519 - 6.12.112-r1
+kmod-crypto-lib-poly1305 - 6.12.112-r1
 kmod-crypto-manager - 6.12.112-r1
 kmod-crypto-md5 - 6.12.112-r1
 kmod-crypto-null - 6.12.112-r1
@@ -89,11 +94,14 @@ kmod-pppoe - 6.12.112-r1
 kmod-pppox - 6.12.112-r1
 kmod-slhc - 6.12.112-r1
 kmod-thermal - 6.12.112-r1
+kmod-udptunnel4 - 6.12.112-r1
+kmod-udptunnel6 - 6.12.112-r1
 kmod-usb-common - 6.12.112-r1
 kmod-usb-core - 6.12.112-r1
 kmod-usb-xhci-hcd - 6.12.112-r1
 kmod-usb-xhci-mtk - 6.12.112-r1
 kmod-usb3 - 6.12.112-r1
+kmod-wireguard - 6.12.112-r1
 libatomic1 - 14.3.0-r5
 libblkid1 - 2.41.5-r1
 libblobmsg-json20260213 - 2026.11.02~ff13b89e-r1
@@ -228,6 +236,7 @@ uwsgi-luci-support - 2.0.30-r1
 uwsgi-syslog-plugin - 2.0.30-r1
 wget-ssl - 1.25.0-r3
 wifi-scripts - 1.0-r1
+wireguard-tools - 1.0.20260223-r1
 wireless-regdb - 2026.09.03-r1
 wpad-mbedtls - 2025.08.26~ca266cc2-r7
 zlib - 1.3.1-r1

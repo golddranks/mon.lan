@@ -1,0 +1,116 @@
+#!/bin/sh
+# Converge the WireGuard peers in /etc/config/network to the ones listed in
+# /etc/wireguard/<interface>.tsv: add missing, update changed, and remove peers
+# that are no longer listed. The TSVs are the only source of peers.
+#
+# Columns, tab separated: description, public key, allowed ips.
+#
+# Safe to re-run: with nothing changed it writes nothing. Live, the interfaces
+# whose peers moved are reconfigured, so a peer appears without a reboot.
+set -eu
+
+wanted=/tmp/wireguard-peers.$$
+trap 'rm -f "$wanted"' EXIT
+: >"$wanted"
+changed=0
+touched=
+
+# Peer sections in the network config, as bare refs (section name or
+# @wireguard_<iface>[n]), whatever interface they are on.
+sections() {
+	uci -q show network | sed -n 's/^network\.\([^=]*\)=wireguard_.*$/\1/p'
+}
+
+# Every uci access goes through the config name, so refs stay bare.
+uci_get() { uci -q get "network.$1" || true; }
+
+# Marks an interface whose peers changed, so it can be reconfigured at the end.
+record_touch() {
+	case " $touched " in
+	*" $1 "*) return 0 ;;
+	esac
+	touched="$touched $1"
+}
+
+for file in /etc/wireguard/*.tsv; do
+	[ -f "$file" ] || continue
+	iface=${file##*/}
+	iface=${iface%.tsv}
+
+	while IFS="$(printf '\t')" read -r desc key ips; do
+		case "$desc" in
+		'' | '#'*) continue ;;
+		esac
+		[ -n "$key" ] && [ -n "$ips" ] || continue
+		printf '%s\n' "$key" >>"$wanted"
+
+		ref=
+		for candidate in $(sections); do
+			if [ "$(uci_get "$candidate.public_key")" = "$key" ]; then
+				ref=$candidate
+				break
+			fi
+		done
+
+		# A key that moved to another interface has to be recreated there.
+		if [ -n "$ref" ] && [ "$(uci_get "$ref")" != "wireguard_$iface" ]; then
+			uci -q delete "network.$ref"
+			changed=1
+			record_touch "$iface"
+			ref=
+		fi
+
+		if [ -z "$ref" ]; then
+			ref=$(uci add network "wireguard_$iface")
+			uci set "network.$ref.description=$desc"
+			uci set "network.$ref.public_key=$key"
+			for one in $(printf '%s' "$ips" | tr ',' ' '); do
+				uci add_list "network.$ref.allowed_ips=$one"
+			done
+			changed=1
+			record_touch "$iface"
+			continue
+		fi
+
+		if [ "$(uci_get "$ref.description")" != "$desc" ]; then
+			uci set "network.$ref.description=$desc"
+			changed=1
+			record_touch "$iface"
+		fi
+		want=$(printf '%s' "$ips" | tr ',' ' ')
+		if [ "$(uci_get "$ref.allowed_ips")" != "$want" ]; then
+			uci -q delete "network.$ref.allowed_ips"
+			for one in $want; do
+				uci add_list "network.$ref.allowed_ips=$one"
+			done
+			changed=1
+			record_touch "$iface"
+		fi
+	done <"$file"
+done
+
+# Anything left that no TSV lists is no longer a peer.
+for candidate in $(sections); do
+	key=$(uci_get "$candidate.public_key")
+	[ -n "$key" ] || continue
+	if ! grep -qxF "$key" "$wanted"; then
+		type=$(uci_get "$candidate")
+		uci -q delete "network.$candidate"
+		changed=1
+		record_touch "${type#wireguard_}"
+	fi
+done
+
+if [ "$changed" -eq 1 ]; then
+	uci commit network
+	# netifd re-reads the config, but does not re-run setup for an interface
+	# whose own section did not change, and a peer section does not count.
+	# Reconfigure the interfaces whose peers moved; at first boot they are not up
+	# yet, and netifd reads the committed config anyway.
+	for iface in $touched; do
+		wg show "$iface" >/dev/null 2>&1 || continue
+		ifup "$iface"
+	done
+fi
+
+exit 0

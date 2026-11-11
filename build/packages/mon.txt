@@ -54,3 +54,7 @@ msmtp
 # /etc/msmtprc pins tls_trust_file at /etc/ssl/certs/ca-certificates.crt. curl
 # pulls ca-bundle in today, but depending on that is accidental.
 ca-bundle
+
+# --- WireGuard (two interfaces; see /etc/config/network) ---
+wireguard-tools
+kmod-wireguard

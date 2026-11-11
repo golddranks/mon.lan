@@ -1,0 +1,5 @@
+# Peers on lan_vpn (SkeletoriLanVPN), added by
+# /etc/uci-defaults/50-wireguard-peers.
+#
+# description, public key, allowed ips (comma separated).
+kon-kage-lan	7d2uNCPzy2mDQVmyT2YiVSipF0FdAoyvggvyVc/3SA4=	@ULA@:1::2/128

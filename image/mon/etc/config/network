@@ -68,3 +68,26 @@ config interface 'wan6'
 	option proto 'dhcpv6'
 	option reqaddress 'try'
 	option reqprefix '56'
+
+# --- WireGuard ---------------------------------------------------------------
+# SkeletoriLanVPN: a second /64 in the same ULA, forwarded to the LAN with no
+# NAT, so a client away from home reaches hosts by the names and addresses it
+# uses at home. The client's AllowedIPs are the two ULA /64s only, so what wins
+# at home is a client-side routing question (see README).
+config interface 'lan_vpn'
+	option proto 'wireguard'
+	option private_key '@LAN_VPN_KEY@'
+	option listen_port '51820'
+	list addresses '@ULA@:1::1/64'
+
+# SkeletoriJailVPN: IPv4 only, masqueraded to the WAN and with no route to the
+# LAN. There is no IPv6 address on this interface, so a client that sends ::/0
+# into the tunnel has its v6 dropped here instead of leaking it.
+config interface 'jail_vpn'
+	option proto 'wireguard'
+	option private_key '@JAIL_VPN_KEY@'
+	option listen_port '51821'
+	list addresses '10.10.2.1/24'
+
+# Peers are not listed here: one /etc/wireguard/<interface>.tsv per interface
+# holds them, and /etc/uci-defaults/50-wireguard-peers adds them at first boot.

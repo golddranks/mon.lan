@@ -1,0 +1,5 @@
+# Peers on jail_vpn (SkeletoriJailVPN), added at first boot by
+# /etc/uci-defaults/50-wireguard-peers.
+#
+# description, public key, allowed ips (comma separated).
+kon-kage-jail	pe5sGhthdyN37wv0nW25LXJUwE/72bmCAZp0rRmRKRo=	10.10.2.2/32

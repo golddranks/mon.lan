@@ -45,12 +45,44 @@ config zone
 	option output 'ACCEPT'
 	option forward 'REJECT'
 
+# Reach into the LAN from anywhere: trusted for what it may reach, but not a
+# LAN segment. It serves no DHCP, and its clients come to the router only for
+# DNS, SSH and LuCI.
+config zone
+	option name 'vpn'
+	list network 'lan_vpn'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+
+# Leave the house through it: masqueraded to the WAN, and no route to the LAN.
+config zone
+	option name 'vpnjail'
+	list network 'jail_vpn'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option masq '1'
+	option mtu_fix '1'
+
 config forwarding
 	option src 'lan'
 	option dest 'wan'
 
 config forwarding
 	option src 'iot'
+	option dest 'wan'
+
+config forwarding
+	option src 'vpn'
+	option dest 'lan'
+
+config forwarding
+	option src 'lan'
+	option dest 'vpn'
+
+config forwarding
+	option src 'vpnjail'
 	option dest 'wan'
 
 config rule
@@ -173,6 +205,22 @@ config rule
 config rule
 	option name 'Allow-Jail-DNS'
 	option src 'iot'
+	option proto 'tcpudp'
+	option dest_port '53'
+	option target 'ACCEPT'
+
+# WireGuard listens on one port per interface, both UDP.
+config rule
+	option name 'Allow-WireGuard'
+	option src 'wan'
+	option proto 'udp'
+	option dest_port '51820 51821'
+	option target 'ACCEPT'
+
+# The jail VPN resolves names through the router and reaches nothing else of it.
+config rule
+	option name 'Allow-JailVPN-DNS'
+	option src 'vpnjail'
 	option proto 'tcpudp'
 	option dest_port '53'
 	option target 'ACCEPT'
