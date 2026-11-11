@@ -1,5 +1,5 @@
 #!/bin/sh
-# ULA only: mon forwards 22/80/443 to LAN hosts, so a wildcard listener would
+# ULA only: mon forwards 80/443 to LAN hosts, so a wildcard listener would
 # put the admin UI on the internet. The IPv4 listeners go too: the LAN is
 # IPv6-only.
 uci -q delete uhttpd.main.listen_http

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Converge the WireGuard peers in /etc/config/network to the ones listed in
 # /etc/wireguard/<interface>.tsv: add missing, update changed, and remove peers
-# that are no longer listed. The TSVs are the only source of peers.
+# that are not listed. The TSVs are the only source of peers.
 #
 # Columns, tab separated: description, public key, allowed ips.
 #
@@ -89,7 +89,7 @@ for file in /etc/wireguard/*.tsv; do
 	done <"$file"
 done
 
-# Anything left that no TSV lists is no longer a peer.
+# Anything left that no TSV lists is not a peer.
 for candidate in $(sections); do
 	key=$(uci_get "$candidate.public_key")
 	[ -n "$key" ] || continue

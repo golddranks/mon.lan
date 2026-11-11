@@ -22,8 +22,10 @@ time.
   LAN, for browsing as if from home. Peers live in `/etc/wireguard/<interface>.tsv`
   and are added to their interfaces at first boot.
 - **DDNS** (Gandi): A + AAAA for `bitwarden`, `syncthing`, `webshare`, `cafe`;
-  AAAA only for `bead` and `llm`. The AAAA is the host's LAN address.
-- Inbound TCP 22/80/443 is forwarded to LAN hosts while the router's own input
+  AAAA only for `bead` and `llm`. The AAAA is the host's LAN address. `vpn`
+  publishes both WAN addresses instead, which is how the WireGuard profiles
+  find the router.
+- Inbound TCP 80/443 is forwarded to LAN hosts while the router's own input
   stays closed.
 - `mon.lan`, `ban.lan`, `mon.drasa.eu`, `ban.drasa.eu`, `bead.lan`,
   `bead.drasa.eu` and `llm.drasa.eu` (bead's LLM vhost): static ULA entries;
@@ -36,8 +38,8 @@ time.
   IPv6.
 - **LuCI**: reachable on the LAN with a self-signed cert, and as `mon.drasa.eu`
   with a Let's Encrypt one issued through the DNS zone, so no inbound port is
-  needed for it. IPv4 :80/:443 are nginx's proxy, routing 443 by name to cafe so
-  cafe keeps its own certificates.
+  needed for it. IPv4 :80 redirects to HTTPS; IPv4 :443 is routed by name to
+  cafe, which keeps its own certificates.
 - **Diagnostics**: `netdiag` checks the invariants and exits non-zero on
   failure; `mon-watch` runs it every 10 min and mails when the failing set or a
   watched value (the delegation, the LAN GUA) changes, so a clean renumbering is

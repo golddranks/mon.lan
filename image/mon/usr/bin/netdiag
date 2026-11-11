@@ -261,7 +261,7 @@ else
 	fail "ban reachable" "no echo reply from $BAN_ULA"
 fi
 
-# The AP must not form a GUA: mon forwards 22/80/443 to the LAN zone, so any
+# The AP must not form a GUA: mon forwards 80/443 to the LAN zone, so any
 # address on ban that is not the ULA would be reachable from the internet.
 if [ ! -f "$GHOST_KEY" ]; then
 	skip "ban no gua" "no ghost key at $GHOST_KEY"
@@ -503,13 +503,17 @@ for section in $(uci -q show ddns |
 	sed -n 's/^ddns\.\([^.=]*\)\.lookup_host=.*/\1/p'); do
 	host=$(uci -q get "ddns.$section.lookup_host")
 	if [ "$(uci -q get "ddns.$section.use_ipv6")" = "1" ]; then
-		# The AAAA is the LAN /64 plus the host id given to the section's
-		# ip_script (`lan_suffix.sh bead` publishes ::bead).
-		suffix=$(uci -q get "ddns.$section.ip_script" | awk '{ print $NF }')
-		expected=
-		[ -n "$suffix" ] &&
-			expected="$(printf '%s' "${lan_gua:-}" | cut -d: -f1-4)::$suffix"
 		qtype=AAAA
+		if [ "$(uci -q get "ddns.$section.ip_network")" = "wan6" ]; then
+			expected="$wan6_addr"
+		else
+			# The AAAA is the LAN /64 plus the host id given to the section's
+			# ip_script (`lan_suffix.sh bead` publishes ::bead).
+			suffix=$(uci -q get "ddns.$section.ip_script" | awk '{ print $NF }')
+			expected=
+			[ -n "$suffix" ] &&
+				expected="$(printf '%s' "${lan_gua:-}" | cut -d: -f1-4)::$suffix"
+		fi
 	else
 		suffix=
 		expected="$wan4"
@@ -518,7 +522,7 @@ for section in $(uci -q show ddns |
 
 	case "$expected" in
 	'' | ::*)
-		skip "ddns $section" "missing WAN IPv4, LAN GUA or host id"
+		skip "ddns $section" "no address to publish"
 		continue
 		;;
 	esac
@@ -561,13 +565,14 @@ field() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1; }
 
 if [ -z "$(on_hato 'echo ok')" ]; then
 	fail "pub vantage" "$HATO does not answer; the outside checks cannot run"
-	for label in "wan4 input" "wan6 input" "mon closed" "cafe" "ban closed"; do
+	for label in "wan4 input" "wan6 input" "mon closed" "cafe" "lan ssh" "ban closed"; do
 		skip "pub $label" "hato is unreachable"
 	done
 else
 	pass "pub vantage" "$HATO answers"
 	# IPv4 is one address shared by the line, so which host answers on it is a
-	# policy question: the router keeps 22 to itself and 80/443 belong to cafe.
+	# policy question: the router keeps 22 and redirects 80, and 443 belongs to
+	# cafe.
 	if [ -z "$wan4" ]; then
 		skip "pub wan4 input" "no WAN IPv4"
 	else
@@ -633,6 +638,20 @@ else
 		pass "pub cafe" "200 with a verified certificate"
 	else
 		fail "pub cafe" "expected 200 with a verified certificate, got '${code:-no answer}'"
+	fi
+
+	# LAN isn't meant to be reachable by SSH.
+	cafe6=$(on_hato "dig +short AAAA $CAFE_NAME | head -n 1")
+	if [ -z "$cafe6" ]; then
+		skip "pub lan ssh" "no AAAA for $CAFE_NAME"
+	else
+		out=$(on_hato "nc -z -w 3 $cafe6 22 >/dev/null 2>&1; echo s22=\$?")
+		s22=$(field "$out" s22)
+		if [ "$s22" != 0 ]; then
+			pass "pub lan ssh" "22 refused on $cafe6"
+		else
+			fail "pub lan ssh" "$cafe6 answers on 22 from outside"
+		fi
 	fi
 fi
 

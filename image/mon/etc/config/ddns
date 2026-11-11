@@ -1,20 +1,21 @@
 # Dynamic DNS (Gandi LiveDNS) for the names published from the LAN.
 #
-# Names served by cafe get an A record for the WAN IPv4 (inbound IPv4 terminates
-# on the router's nginx stream proxy) and an AAAA for cafe's GUA. Hosts with a
-# static DHCPv6 lease get an AAAA only. odhcpd takes the host id from that lease
-# (`duid` plus `hostid`, see /etc/config/dhcp), so the AAAA is the current LAN
-# /64 plus the host id; /usr/lib/ddns/lan_suffix.sh prints it.
+# Public web hosts on the LAN get an A record for the WAN IPv4 (inbound IPv4
+# terminates on the router) and an AAAA for the host's own GUA.
+# Other hosts get an AAAA only.
 #
-# `ip_source network` follows DHCP/PD changes; the AAAA script follows the
-# delegated prefix. The provider script in /usr/lib/ddns is overridden by the
-# image because the packaged ddns-scripts sends Gandi's retired `Apikey`
-# header, which the API rejects for personal access tokens.
+# IP addresses are determined by two methods:
+# Option `ip_source network` follows WAN IP changes automatically;
+# option `ip_source script` calculates the LAN host's GUA IPv6 address using
+# the delegated prefix and the `hostid`.
 #
-# ddns-scripts cannot create a missing record: a failed lookup aborts the update
-# and retries forever. Each name must already have an A and an AAAA rrset in the
-# zone; this config only updates them. If a record is deleted, create it once
-# (and expect the zone's negative TTL to delay recovery in the local caches).
+# The DNS updater script is overridden by the image because
+# OpenWrt's packaged ddns-scripts sends Gandi's deprecated `Apikey` header,
+# which the API rejects for personal access tokens.
+#
+# ddns-scripts cannot create a missing record, it only updates them:
+# a failed lookup aborts the update and retries forever.
+# So every A and AAAA rrset it updates must already exist in the zone.
 
 config ddns 'global'
 	option ddns_dateformat '%F %R'
@@ -146,4 +147,30 @@ config service 'llm_aaaa'
 	option use_ipv6 '1'
 	option ip_source 'script'
 	option ip_script '/usr/lib/ddns/lan_suffix.sh bead'
+	option use_syslog '2'
+
+# The WireGuard clients' endpoint: both of the router's WAN addresses, which the
+# ISP can change. The profiles name this host instead of an address.
+config service 'vpn_a'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'vpn.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'vpn'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '0'
+	option ip_source 'network'
+	option ip_network 'wan'
+	option use_syslog '2'
+
+config service 'vpn_aaaa'
+	option enabled '1'
+	option service_name 'gandi.net'
+	option lookup_host 'vpn.drasa.eu'
+	option domain 'drasa.eu'
+	option username 'vpn'
+	option password '@GANDI_API_KEY@'
+	option use_ipv6 '1'
+	option ip_source 'network'
+	option ip_network 'wan6'
 	option use_syslog '2'

@@ -34,5 +34,5 @@ http {
 	include conf.d/*.conf;
 }
 
-# Top-level stream proxy; the HTTP server above is IPv6-only. See stream.d.
+# Top-level stream proxy: IPv4 TLS routed by name. See stream.d.
 include stream.d/*.conf;

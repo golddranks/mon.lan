@@ -1,23 +1,27 @@
-# nginx is the TLS front-end for LuCI. nginx-mod-luci's uci-defaults disables
-# uhttpd on first boot and serves LuCI through uwsgi; nginx-util turns this UCI
-# into the running configuration on every (re)start.
+# nginx is the TLS front-end for LuCI, OpenWrt's admin panel.
+# nginx-mod-luci's uci-defaults disables uhttpd on first boot and serves LuCI
+# through uwsgi; nginx-util turns this UCI into the running configuration
+# on every (re)start.
 #
-# The HTTP server listens on IPv6 only: the LAN is IPv6-only, and IPv4 :80/:443
-# are owned by the stream proxy in /etc/nginx/stream.d (cafe's names).
+# The HTTP server serves :443 over IPv6 only.
+# On :80 it answers both families, redirecting to HTTPS.
+# IPv4 :443 belongs to the stream proxy in /etc/nginx/stream.d.
+# It routes each name to the appointed host (e.g. cafe).
 #
-# Two HTTPS server parts:
-#   _lan          - default_server, LAN-only, self-signed (works by IP)
-#   mon_drasa_eu  - the public name, Let's Encrypt certificate (see
-#                   /etc/config/acme). A placeholder self-signed cert is
-#                   generated at that path on first boot so nginx always starts.
+# Two LuCI-serving HTTPS server parts:
+#   _lan_luci          - default_server, LAN-only, self-signed (works by IP)
+#   mon_drasa_eu_luci  - the public name, with a Let's Encrypt certificate.
+#                        The path comes from /etc/config/acme; a placeholder
+#                        self-signed cert is generated there on first boot, so
+#                        nginx always starts.
 # plus _redirect2ssl, which sends http:// to https://.
 
 config main global
 	option uci_enable 'true'
 
-config server '_lan'
+config server '_lan_luci'
 	list listen '[::]:443 ssl default_server'
-	option server_name '_lan'
+	option server_name '_lan_luci'
 	list include 'restrict_locally'
 	list include 'conf.d/*.locations'
 	option uci_manage_ssl 'self-signed'
@@ -29,10 +33,11 @@ config server '_lan'
 
 config server '_redirect2ssl'
 	list listen '[::]:80'
+	list listen '80'
 	option server_name '_redirect2ssl'
 	option return '301 https://$host$request_uri'
 
-config server 'mon_drasa_eu'
+config server 'mon_drasa_eu_luci'
 	list listen '[::]:443 ssl'
 	option server_name 'mon.drasa.eu'
 	list include 'restrict_locally'
