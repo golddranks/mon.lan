@@ -107,8 +107,3 @@ resolves different versions fails until the diff is reviewed and recorded.
 The image ships a recipe for problems that come up: `jail-pairing on|off` opens
 the jail so a WPS device can pair, and closes it again once the device is
 registered; cron closes it at 04:35 either way.
-
-## Not yet implemented
-
-- **Smarter monitoring.** The checks are written by hand; a pass over what they
-  collect could catch combinations nobody thought to check for.

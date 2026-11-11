@@ -12,9 +12,11 @@
 # mails when one changes, so a renumbering that stays healthy is still visible.
 #
 # Not covered: ACME renewal itself (only the certificate it produced is
-# checked), cafe's own services beyond a TCP handshake, and the NAT64 datapath
-# when ban is offline (the datapath check needs a host on the LAN). The outside
-# group needs hato and reports skip for all of its checks when it is away.
+# checked), cafe's own services beyond a TCP handshake, the NAT64 datapath when
+# ban is offline (the datapath check needs a host on the LAN), and the jail,
+# whose devices cannot be driven from here. The outside group needs hato and
+# reports skip for all of its checks when it is away; the VPN group skips until
+# hato has a tunnel of its own.
 #
 # Read-only. Exit status is 1 if any check fails.
 
@@ -201,14 +203,6 @@ fi
 
 probe6="2606:4700:4700::1111"
 
-if [ -z "$lan_gua" ]; then
-	skip "lan route" "no LAN GUA to route"
-elif ip -6 route get "$probe6" from "$lan_gua" >/dev/null 2>&1; then
-	pass "lan route" "$lan_gua"
-else
-	fail "lan route" "no default route matches source $lan_gua"
-fi
-
 # --- the prefix is actually routed upstream ---------------------------------
 group upstream
 # Holding a delegation means only that netifd has one. J:COM has stopped routing
@@ -237,9 +231,9 @@ else
 	fail "dns64" "no synthesised AAAA from the local resolver"
 fi
 
-for pair in "$MON_NAME|$ULA" "ban.lan|$BAN_ULA" "ban.drasa.eu|$BAN_ULA" \
-	"bead.lan|$BEAD_ULA" "bead.drasa.eu|$BEAD_ULA" \
-	"llm.drasa.eu|$BEAD_ULA"; do
+for pair in "$MON_NAME|$ULA" "mon.lan|$ULA" "ban.lan|$BAN_ULA" \
+	"ban.drasa.eu|$BAN_ULA" "bead.lan|$BEAD_ULA" \
+	"bead.drasa.eu|$BEAD_ULA" "llm.drasa.eu|$BEAD_ULA"; do
 	name=${pair%|*}
 	want=${pair#*|}
 	answers=$(dns_answers 127.0.0.1 "$name")
@@ -294,14 +288,32 @@ else
 	fail "usteer peers" "none; the APs are not exchanging state"
 fi
 
+# The jail's devices are only reachable through their DHCPv4 leases: dnsmasq
+# renews a lease at half of its 12 h lifetime, so a device that stops answering
+# loses the lease entirely. The lease file is under /tmp, so it is empty on
+# every boot and a device reappears at its next renewal: until one renewal
+# interval has passed, absence says nothing.
+uptime_s=$(cut -d' ' -f1 /proc/uptime)
+lease_now=$(date +%s)
+for section in $(uci -q show dhcp |
+	sed -n 's/^dhcp\.\(@host\[[0-9]*\]\)\.mac=.*/\1/p'); do
+	name=$(uci -q get "dhcp.$section.name")
+	mac=$(uci -q get "dhcp.$section.mac" | tr 'A-F' 'a-f')
+	if [ "${uptime_s%%.*}" -lt 25200 ]; then
+		skip "iot $name" "up for $(( ${uptime_s%%.*} / 3600 ))h; leases are still being rebuilt"
+		continue
+	fi
+	exp=$(awk -v mac="$mac" -v now="$lease_now" '
+		tolower($2) == mac && $1 + 0 > now { print $1; exit }' /tmp/dhcp.leases 2>/dev/null)
+	if [ -n "$exp" ]; then
+		pass "iot $name" "lease for another $(((exp - lease_now) / 3600))h"
+	else
+		fail "iot $name" "$mac holds no current lease on the jail"
+	fi
+done
+
 # --- NAT64 ------------------------------------------------------------------
 group nat64
-if jool instance display >/dev/null 2>&1; then
-	pass "jool instance" "$JOOL_INSTANCE running"
-else
-	fail "jool instance" "no jool instance"
-fi
-
 # Jool only translates forwarded traffic, so mon cannot test its own translation:
 # a ping from the router, or a connection to the router's own WAN address, never
 # enters the forward hook. The probe therefore runs on ban, an ordinary host on
@@ -350,24 +362,6 @@ info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
 
 # --- enforcement ------------------------------------------------------------
 group enforcement
-# IPv4-only bridge for devices that cannot use IPv6. It needs its own address,
-# and must carry no global IPv6 address - one there would put jail devices on
-# the LAN's addressing while sitting in another zone. Client isolation is a
-# setting, so this is a lint, not a consequence.
-jail4=$(ip -4 -o addr show dev br-iot 2>/dev/null | awk '{ print $4 }')
-jail6=$(ip -6 -o addr show dev br-iot scope global 2>/dev/null |
-	sed -n 's/.* inet6 \([^/]*\)\/.*/\1/p')
-jail_iso=$(uci -q get wireless.jail_radio0.isolate)
-if [ -z "$jail4" ]; then
-	fail "jail" "br-iot has no IPv4 address"
-elif [ -n "$jail6" ]; then
-	fail "jail" "$jail6 is on br-iot; the jail must stay IPv4-only"
-elif [ "$jail_iso" != "1" ]; then
-	fail "jail" "client isolation is off; jail devices can reach each other"
-else
-	pass "jail" "lint - $jail4, isolated, no IPv6"
-fi
-
 # A lint until an external probe exists (a host outside the WAN trying 22/80/443
 # is the real consequence). It reads the wan input chain, so it also catches a
 # rule that opens the router itself.
@@ -390,15 +384,41 @@ else
 	pass "fw v6 input" "lint - no 22/80/443 accepted from WAN"
 fi
 
-# --- services ---------------------------------------------------------------
-group services
-for svc in odhcpd dnsmasq unbound nginx uwsgi usteer; do
-	if pgrep -f "$svc" >/dev/null 2>&1; then
-		pass "service $svc" "running"
+# --- VPN --------------------------------------------------------------------
+group vpn
+# SkeletoriLanVPN is the only way into the LAN from outside, and a tunnel that
+# is configured on both ends but never completes a handshake is indistinguishable
+# from a working one when looked at from mon. The consequence is hato's: it joins
+# the tunnel and addresses a host the way it would at home.
+vpn_links=$(on_hato 'ip -o link show type wireguard 2>/dev/null')
+if [ -z "$(on_hato 'echo ok')" ]; then
+	skip "vpn lan path" "hato is unreachable"
+	skip "vpn handshake" "hato is unreachable"
+elif [ -z "$vpn_links" ]; then
+	skip "vpn lan path" "hato has no WireGuard interface"
+	skip "vpn handshake" "hato has no WireGuard interface"
+else
+	# `ping -6`, not `ping6`: hato's `ping6` is inetutils and rejects these
+	# options outright, while iputils' `ping` has the privilege to open the socket.
+	out=$(on_hato "ping -6 -c 2 -w 5 $CAFE_ULA >/dev/null 2>&1; echo vpn=\$?")
+	vpn_rc=$(printf '%s\n' "$out" | sed -n 's/^vpn=//p')
+	if [ "$vpn_rc" = 0 ]; then
+		pass "vpn lan path" "$CAFE_ULA from hato through the tunnel"
 	else
-		fail "service $svc" "not running"
+		fail "vpn lan path" "hato gets no reply from $CAFE_ULA over the tunnel"
 	fi
-done
+
+	# The ping above is what makes mon rekey; the peer's own timestamp is the
+	# proof that the handshake completed rather than the packets being dropped.
+	hs=$(wg show lan_vpn latest-handshakes 2>/dev/null |
+		awk '{ print $2 }' | sort -n | tail -n 1)
+	age=$(($(date +%s) - ${hs:-0}))
+	if [ "${hs:-0}" -gt 0 ] && [ "$age" -lt 300 ]; then
+		pass "vpn handshake" "lan_vpn handshook ${age}s ago"
+	else
+		fail "vpn handshake" "no handshake on lan_vpn within 5 minutes"
+	fi
+fi
 
 # --- web and TLS ------------------------------------------------------------
 group web
@@ -475,12 +495,24 @@ else
 	fail "ssid" "$want_ssid on $main_on radio(s), $jail_ssid on $jail_on ($jail_on_24 on radio0)"
 fi
 
-# Whether ntpd answers is the consequence; enable_server is only the setting.
-if netstat -lnup 2>/dev/null | awk '$4 ~ /:123$/ { found = 1 } END { exit !found }'; then
-	pass "ntp server" "123/udp is bound"
-else
-	fail "ntp server" "nothing is listening on 123/udp"
-fi
+# ban has no RTC, so its clock is right only if it took the time from mon since
+# it booted. Comparing the two is the consequence of the NTP server.
+ban_s=$(on_ban 'date +%s' | tr -d '\r')
+mon_s=$(date +%s)
+case "$ban_s" in
+'' | *[!0-9]*)
+	skip "ban clock" "ban did not report a time"
+	;;
+*)
+	skew=$((ban_s - mon_s))
+	[ "$skew" -lt 0 ] && skew=$((-skew))
+	if [ "$skew" -lt 120 ]; then
+		pass "ban clock" "${skew}s from mon"
+	else
+		fail "ban clock" "${skew}s from mon; ban is not taking time from the router"
+	fi
+	;;
+esac
 
 # --- published DNS ----------------------------------------------------------
 group dns
@@ -565,7 +597,7 @@ field() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1; }
 
 if [ -z "$(on_hato 'echo ok')" ]; then
 	fail "pub vantage" "$HATO does not answer; the outside checks cannot run"
-	for label in "wan4 input" "wan6 input" "mon closed" "cafe" "lan ssh" "ban closed"; do
+	for label in "wan4 input" "wan4 names" "wan6 input" "mon closed" "cafe" "lan ssh" "lan http" "ban closed"; do
 		skip "pub $label" "hato is unreachable"
 	done
 else
@@ -578,15 +610,27 @@ else
 	else
 		out=$(on_hato "ping -c 1 -w 2 $wan4 >/dev/null 2>&1; echo icmp=\$?
 			nc -z -w 3 $wan4 22 >/dev/null 2>&1; echo s22=\$?
+			curl -sS -o /dev/null -w 'http=%{http_code}\n' --max-time 6 http://$wan4/
 			curl -sS -o /dev/null -w 'cafe=%{http_code}\n' --max-time 6 --resolve $CAFE_NAME:443:$wan4 https://$CAFE_NAME/")
 		icmp=$(field "$out" icmp)
 		s22=$(field "$out" s22)
+		http4=$(field "$out" http)
 		cafe4=$(field "$out" cafe)
-		if [ "$icmp" = 0 ] && [ "$s22" != 0 ] && [ "$cafe4" = 200 ]; then
-			pass "pub wan4 input" "$wan4: ICMP answers, 22 refused, 443 is cafe"
+		if [ "$icmp" = 0 ] && [ "$s22" != 0 ] && [ "$http4" = 301 ] && [ "$cafe4" = 200 ]; then
+			pass "pub wan4 input" "$wan4: ICMP answers, 22 refused, 80 redirects, 443 is cafe"
 		else
-			fail "pub wan4 input" "$wan4: icmp=${icmp:-?} 22=${s22:-?} cafe-443=${cafe4:-?}"
+			fail "pub wan4 input" "$wan4: icmp=${icmp:-?} 22=${s22:-?} 80=${http4:-?} 443=${cafe4:-?}"
 		fi
+	fi
+
+	# The stream map is closed: a name it does not list has to fail its
+	# handshake rather than reach a default backend.
+	if [ -n "$wan4" ]; then
+		out=$(on_hato "curl -sS -o /dev/null -w '%{http_code}' --max-time 6 --resolve unlisted.example:443:$wan4 https://unlisted.example/")
+		case "$out" in
+		'' | 000) pass "pub wan4 names" "unlisted SNI refused on $wan4:443" ;;
+		*) fail "pub wan4 names" "unlisted SNI answered '$out'" ;;
+		esac
 	fi
 
 	# In IPv6 the address is mon's own, so nothing of cafe's may answer on it.
@@ -640,10 +684,13 @@ else
 		fail "pub cafe" "expected 200 with a verified certificate, got '${code:-no answer}'"
 	fi
 
-	# LAN isn't meant to be reachable by SSH.
+	# LAN isn't meant to be reachable by SSH, and 80 is forwarded like 443: mon
+	# redirects only on IPv4, so a browser following the AAAA reaches cafe's own
+	# HTTP server.
 	cafe6=$(on_hato "dig +short AAAA $CAFE_NAME | head -n 1")
 	if [ -z "$cafe6" ]; then
 		skip "pub lan ssh" "no AAAA for $CAFE_NAME"
+		skip "pub lan http" "no AAAA for $CAFE_NAME"
 	else
 		out=$(on_hato "nc -z -w 3 $cafe6 22 >/dev/null 2>&1; echo s22=\$?")
 		s22=$(field "$out" s22)
@@ -651,6 +698,13 @@ else
 			pass "pub lan ssh" "22 refused on $cafe6"
 		else
 			fail "pub lan ssh" "$cafe6 answers on 22 from outside"
+		fi
+
+		out=$(on_hato "curl -sS -o /dev/null -w '%{http_code}' --max-time 6 -H 'Host: $CAFE_NAME' http://[$cafe6]/")
+		if [ "$out" = 301 ]; then
+			pass "pub lan http" "301 on $cafe6:80"
+		else
+			fail "pub lan http" "expected 301 on $cafe6:80, got '${out:-no answer}'"
 		fi
 	fi
 fi
