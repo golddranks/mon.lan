@@ -36,7 +36,8 @@ BEAD_ULA="$ula_stem::bead"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
-NIXOS_MAX_AGE_DAYS=3
+NIXOS_PIN_MAX_LAG_DAYS=3
+NIXOS_HOST_MAX_LAG_DAYS=1
 SPACE_MAX_PCT=90
 GHOST_KEY="/root/.ssh/id_ed25519"
 
@@ -810,10 +811,10 @@ fi
 
 # --- out of date -------------------------------------------------------------
 # Both boxes are OpenWrt images built from a pinned release, and the LAN's NixOS
-# hosts are built from a pinned flake, so "up to date" is not about a running
-# process: it is whether the pin still points at the current release, whether
-# each host still runs the build made for it, and whether any host is sitting on
-# an activated kernel or initrd it never booted.
+# hosts are built from the flake.lock in nixos_configs, so "up to date" is not
+# about a running process: it is whether the pinned release is still the current
+# one, whether the hosts still run what the lock pins, and whether any host is
+# sitting on an activated kernel or initrd it never booted.
 #
 # Upstream answers change on the scale of weeks, so they are fetched once a day
 # into /tmp and parsed from there. A failed fetch keeps yesterday's copy; with
@@ -838,6 +839,36 @@ fetch() {
 
 fetch openwrt https://downloads.openwrt.org/.versions.json
 fetch nixos https://endoflife.date/api/nixos.json
+fetch lock https://raw.githubusercontent.com/golddranks/nixos_configs/main/flake.lock
+
+# What the hosts are built from. The workflow in that repo moves it daily.
+pin_rev=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.rev' 2>/dev/null)
+pin_date=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.lastModified' 2>/dev/null)
+
+# The release's branch head as "<rev> <commit-epoch>", refreshed daily. The
+# channel redirect names the rev; GitHub names the commit's date.
+fetch_head() {
+	cache="$CACHE/head.$1"
+	if [ -s "$cache" ] && [ -n "$(cat "$cache.stamp" 2>/dev/null)" ] &&
+		[ $(($(date +%s) - $(cat "$cache.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
+		return 0
+	fi
+	final=$(curl -sIL --max-time 20 -o /dev/null -w '%{url_effective}' \
+		"https://channels.nixos.org/nixos-$1/nixexprs.tar.xz" 2>/dev/null) || return 1
+	head_rev=${final%/*}
+	head_rev=${head_rev##*.}
+	[ -n "$head_rev" ] || return 1
+	curl -s --max-time 20 -o "$cache.raw" \
+		"https://api.github.com/repos/NixOS/nixpkgs/commits/$head_rev" || return 1
+	when=$(jsonfilter -i "$cache.raw" -e '@.commit.committer.date' 2>/dev/null)
+	# busybox date does not take the ISO form Google returns; the commit date is
+	# UTC, so it is parsed as such.
+	when=$(printf '%s' "$when" | sed 's/T/ /; s/Z$//')
+	epoch=$(date -u -d "$when" +%s 2>/dev/null)
+	[ -n "$epoch" ] || return 1
+	printf '%s %s\n' "$head_rev" "$epoch" >"$cache"
+	date +%s >"$cache.stamp"
+}
 
 ow_stable=$(sed -n 's/.*"stable_version": *"\([^"]*\)".*/\1/p' "$CACHE/openwrt" 2>/dev/null | head -n 1)
 [ -n "$ow_stable" ] && value "openwrt newest" "$ow_stable"
@@ -887,15 +918,19 @@ nixos_check() {
 		return
 	fi
 
-	# `26.05.20261102.7dcdd87` carries the nixpkgs date, which is what ages.
+	# `26.05.20261102.7dcdd87` carries the nixpkgs date, i.e. the pin this host
+	# was built from; the lock's pin carries the date it should be on.
 	stamp8=$(printf '%s' "$ver" | cut -d. -f3)
-	age_days=
-	if [ ${#stamp8} -eq 8 ]; then
+	behind=
+	if [ ${#stamp8} -eq 8 ] && [ -n "${pin_date-}" ]; then
 		built_on=$(printf '%s-%s-%s' \
 			"$(printf '%s' "$stamp8" | cut -c1-4)" \
 			"$(printf '%s' "$stamp8" | cut -c5-6)" \
 			"$(printf '%s' "$stamp8" | cut -c7-8)")
-		age_days=$((($(date +%s) - $(date -d "$built_on" +%s)) / 86400))
+		lag=$(( (pin_date - $(date -d "$built_on" +%s)) / 86400 ))
+		if [ "$lag" -gt "$NIXOS_HOST_MAX_LAG_DAYS" ]; then
+			behind="built $lag days before the lock's pin"
+		fi
 	fi
 
 	booted_at=$(printf '%s\n' "$facts" | sed -n '8p')
@@ -915,8 +950,8 @@ nixos_check() {
 	[ "$booted_modules" = "$built_modules" ] || differs="$differs modules"
 
 	problems=
-	if [ -n "$age_days" ] && [ "$age_days" -gt "$NIXOS_MAX_AGE_DAYS" ]; then
-		problems="built $age_days days ago"
+	if [ -n "$behind" ]; then
+		problems="$behind"
 	fi
 	if [ -n "$differs" ]; then
 		what=$(printf '%s' "$differs" | sed 's/^ //; s/ /, /g')
@@ -925,7 +960,7 @@ nixos_check() {
 	if [ -n "$problems" ]; then
 		fail "nixos $host" "$ver: $problems"
 	else
-		pass "nixos $host" "$ver, built ${age_days:-?}d ago, running the current generation"
+		pass "nixos $host" "$ver, on the lock's pin, running the current generation"
 	fi
 
 	nixos_cycles="$nixos_cycles $host:$(printf '%s' "$ver" | cut -d. -f1,2)"
@@ -939,6 +974,28 @@ nixos_newest=
 [ -s "$CACHE/nixos" ] && nixos_newest=$(tr '}' '\n' <"$CACHE/nixos" |
 	sed -n 's/.*"cycle":"\([0-9.]*\)".*/\1/p' | head -n 1)
 [ -n "$nixos_newest" ] && value "nixos newest" "$nixos_newest"
+
+# Whether the lock is current is a question about the branch, not the calendar:
+# a stable branch moves every few days, so its head can be a week old and still
+# be the newest thing there is.
+if [ -z "$pin_rev" ] || [ -z "$pin_date" ] || [ -z "$nixos_newest" ]; then
+	skip "nixos pin" "no lockfile or no host answered"
+elif ! fetch_head "$nixos_newest"; then
+	skip "nixos pin" "no answer from channels.nixos.org"
+else
+	read -r head_rev head_epoch <"$CACHE/head.$nixos_newest"
+	case "$pin_rev" in
+	"$head_rev"*) pass "nixos pin" "the lock pins the $nixos_newest head" ;;
+	*)
+		pin_lag=$(((head_epoch - pin_date) / 86400))
+		if [ "$pin_lag" -gt "$NIXOS_PIN_MAX_LAG_DAYS" ]; then
+			fail "nixos pin" "the lock is $pin_lag days behind the $nixos_newest head ($(printf '%s' "$head_rev" | cut -c1-8))"
+		else
+			pass "nixos pin" "the lock is $pin_lag days behind the $nixos_newest head"
+		fi
+		;;
+	esac
+fi
 
 # A fresh build from a branch that went end of life is still stale; the release
 # dates are the only place that says so.
