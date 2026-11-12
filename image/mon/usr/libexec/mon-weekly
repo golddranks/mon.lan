@@ -7,7 +7,7 @@ SEND="${SEND:-/usr/libexec/mon-send}"
 TMP=/tmp/mon-weekly.$$
 
 {
-	printf 'mon, %s\n' "$(date -u +%FT%TZ)"
+	printf 'mon, %s\n' "$(date +%FT%T%z)"
 	printf 'uptime: %s\n\n' "$(uptime)"
 
 	printf '== netdiag ==\n'

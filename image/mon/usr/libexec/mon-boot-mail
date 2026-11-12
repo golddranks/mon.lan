@@ -8,7 +8,7 @@ synced="${1:-unsynced}"
 
 body=/tmp/mon-boot.$$
 {
-	printf 'mon, %s\n\n' "$(date -u +%FT%TZ)"
+	printf 'mon, %s\n\n' "$(date +%FT%T%z)"
 	release=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)
 	printf 'booted: %s\n' "${release:-unknown}"
 	printf 'uptime: %s\n' "$(uptime)"

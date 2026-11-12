@@ -25,7 +25,7 @@ values_seen=0
 # reboot is usually that, and the uptime makes it obvious.
 stamp() {
 	up=$(cut -d. -f1 /proc/uptime)
-	printf 'mon, %s (uptime %sh%02dm)\n' "$(date -u +%FT%TZ)" \
+	printf 'mon, %s (uptime %sh%02dm)\n' "$(date +%FT%T%z)" \
 		"$((up / 3600))" "$((up % 3600 / 60))"
 }
 

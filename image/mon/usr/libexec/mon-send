@@ -53,7 +53,7 @@ if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
 	fi
 	# /tmp/msmtp.log is in RAM; keep the reason with the message itself.
 	{
-		printf '%s %s\n' "$(date -u +%FT%TZ)" "$event"
+		printf '%s %s\n' "$(date +%FT%T%z)" "$event"
 		printf 'delivery failed, msmtp said:\n'
 		sed 's/^/  /' "$err"
 		cat "$body"
@@ -62,4 +62,4 @@ if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
 	exit 0
 fi
 
-{ printf '%s %s\n' "$(date -u +%FT%TZ)" "$event"; cat "$body"; } >> /root/mon-notify.log
+{ printf '%s %s\n' "$(date +%FT%T%z)" "$event"; cat "$body"; } >> /root/mon-notify.log
