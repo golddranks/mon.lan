@@ -36,6 +36,8 @@ BEAD_ULA="$ula_stem::bead"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
+NIXOS_MAX_AGE_DAYS=3
+SPACE_MAX_PCT=90
 GHOST_KEY="/root/.ssh/id_ed25519"
 
 bad=0
@@ -77,14 +79,13 @@ on_ban() {
 	ssh -T -i "$GHOST_KEY" "ghost@$BAN_ULA" "$1" 2>/dev/null </dev/null
 }
 
-# Runs one command on hato as the same ghost user. It is the only vantage point
-# outside the line. dbclient has no connect timeout and this busybox has no
-# `timeout`, so the call is capped here: a wedged route must not stall a cron
-# run. Everything sent to hato carries its own limit (curl --max-time, nc -w,
-# ping -w).
-on_hato() {
-	out=/tmp/checkup.hato.$$
-	ssh -T -i "$GHOST_KEY" "ghost@$HATO" "$1" >"$out" 2>/dev/null </dev/null &
+# Runs one command on a NixOS host as ghost. dbclient has no connect timeout and
+# this busybox has no `timeout`, so the call is capped here: a wedged host must
+# not stall a cron run. Everything sent over the call carries its own limit
+# (curl --max-time, nc -w, ping -w).
+on_host() {
+	out=/tmp/checkup.ssh.$$
+	ssh -T -i "$GHOST_KEY" "ghost@$1" "$2" >"$out" 2>/dev/null </dev/null &
 	pid=$!
 	# The killer's stdio is redirected: it outlives this function when the call
 	# returns early, and anything it holds open would keep a caller's $(...)
@@ -96,6 +97,9 @@ on_hato() {
 	cat "$out"
 	rm -f "$out"
 }
+
+# hato is the only vantage point outside the line.
+on_hato() { on_host "$HATO" "$1"; }
 
 # --- identity ---------------------------------------------------------------
 group identity
@@ -803,5 +807,221 @@ else
 		fi
 	fi
 fi
+
+# --- out of date -------------------------------------------------------------
+# Both boxes are OpenWrt images built from a pinned release, and the LAN's NixOS
+# hosts are built from a pinned flake, so "up to date" is not about a running
+# process: it is whether the pin still points at the current release, whether
+# each host still runs the build made for it, and whether any host is sitting on
+# an activated kernel or initrd it never booted.
+#
+# Upstream answers change on the scale of weeks, so they are fetched once a day
+# into /tmp and parsed from there. A failed fetch keeps yesterday's copy; with
+# no copy at all the checks skip, because unknown is not current.
+group versions
+
+CACHE=/tmp/checkup.cache
+UPSTREAM_MAX_AGE=86400
+mkdir -p "$CACHE"
+
+# fetch <name> <url> refreshes $CACHE/<name> when it is missing or a day old.
+fetch() {
+	if [ -s "$CACHE/$1" ] && [ -n "$(cat "$CACHE/$1.stamp" 2>/dev/null)" ] &&
+		[ $(($(date +%s) - $(cat "$CACHE/$1.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
+		return 0
+	fi
+	if curl -sf --max-time 20 "$2" -o "$CACHE/$1.tmp"; then
+		mv "$CACHE/$1.tmp" "$CACHE/$1"
+		date +%s >"$CACHE/$1.stamp"
+	fi
+}
+
+fetch openwrt https://downloads.openwrt.org/.versions.json
+fetch nixos https://endoflife.date/api/nixos.json
+
+ow_stable=$(sed -n 's/.*"stable_version": *"\([^"]*\)".*/\1/p' "$CACHE/openwrt" 2>/dev/null | head -n 1)
+[ -n "$ow_stable" ] && value "openwrt newest" "$ow_stable"
+
+# A box on the current stable is up to date. One on the same branch but a patch
+# behind is a heads-up; a box on an older branch gets nothing upstream anymore.
+openwrt_check() {
+	if [ -z "$2" ]; then
+		skip "$1" "release unknown"
+	elif [ -z "$ow_stable" ]; then
+		skip "$1" "no upstream release list"
+	elif [ "$2" = "$ow_stable" ]; then
+		pass "$1" "$2 is the newest stable"
+	elif [ "${2%.*}" = "${ow_stable%.*}" ]; then
+		info "$1" "$ow_stable is out; this box is on $2"
+	else
+		fail "$1" "$2 is a superseded branch; $ow_stable is current"
+	fi
+}
+
+openwrt_check "openwrt mon" "$(sed -n "s/^DISTRIB_RELEASE='\(.*\)'/\1/p" /etc/openwrt_release)"
+openwrt_check "openwrt ban" "$(on_ban 'grep DISTRIB_RELEASE /etc/openwrt_release' | sed "s/.*='\(.*\)'/\1/")"
+
+# Each NixOS host reports the build it runs, what it booted and when, then one
+# "<percent> <mount> <device>" line per real filesystem. The comparison is
+# against the profile rather than /run/current-system, to match should_reboot.sh
+# in the nixos_configs repo.
+nixos_facts() {
+	# shellcheck disable=SC2016 # these commands expand on the host, not here
+	on_host "$1" 'nixos-version
+		readlink /run/booted-system/initrd /run/booted-system/kernel /run/booted-system/kernel-modules
+		readlink /nix/var/nix/profiles/system/initrd /nix/var/nix/profiles/system/kernel /nix/var/nix/profiles/system/kernel-modules
+		date -d @$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )) "+%F %R"
+		stat -c %y /nix/var/nix/profiles/system | cut -c1-16
+		df -P -l -x tmpfs -x devtmpfs -x efivarfs -x squashfs |
+		awk '\''NR > 1 && !seen[$1]++ { p = $5; sub(/%/, "", p); print p, $6, $1 }'\'''
+}
+
+nixos_cycles=
+nixos_check() {
+	host=$1
+	facts=$(nixos_facts "$2")
+	printf '%s\n' "$facts" >"$CACHE/facts.$host"
+	ver=$(printf '%s\n' "$facts" | sed -n '1p')
+	if [ -z "$ver" ]; then
+		skip "nixos $host" "$2 does not answer"
+		return
+	fi
+
+	# `26.05.20261102.7dcdd87` carries the nixpkgs date, which is what ages.
+	stamp8=$(printf '%s' "$ver" | cut -d. -f3)
+	age_days=
+	if [ ${#stamp8} -eq 8 ]; then
+		built_on=$(printf '%s-%s-%s' \
+			"$(printf '%s' "$stamp8" | cut -c1-4)" \
+			"$(printf '%s' "$stamp8" | cut -c5-6)" \
+			"$(printf '%s' "$stamp8" | cut -c7-8)")
+		age_days=$((($(date +%s) - $(date -d "$built_on" +%s)) / 86400))
+	fi
+
+	booted_at=$(printf '%s\n' "$facts" | sed -n '8p')
+	built_at=$(printf '%s\n' "$facts" | sed -n '9p')
+
+	# Store paths carry no spaces, so the twins are compared as plain strings.
+	booted_initrd=$(printf '%s\n' "$facts" | sed -n '2p')
+	booted_kernel=$(printf '%s\n' "$facts" | sed -n '3p')
+	booted_modules=$(printf '%s\n' "$facts" | sed -n '4p')
+	built_initrd=$(printf '%s\n' "$facts" | sed -n '5p')
+	built_kernel=$(printf '%s\n' "$facts" | sed -n '6p')
+	built_modules=$(printf '%s\n' "$facts" | sed -n '7p')
+
+	differs=
+	[ "$booted_initrd" = "$built_initrd" ] || differs="$differs initrd"
+	[ "$booted_kernel" = "$built_kernel" ] || differs="$differs kernel"
+	[ "$booted_modules" = "$built_modules" ] || differs="$differs modules"
+
+	problems=
+	if [ -n "$age_days" ] && [ "$age_days" -gt "$NIXOS_MAX_AGE_DAYS" ]; then
+		problems="built $age_days days ago"
+	fi
+	if [ -n "$differs" ]; then
+		what=$(printf '%s' "$differs" | sed 's/^ //; s/ /, /g')
+		problems="${problems:+$problems, }a reboot is pending ($what): booted ${booted_at:-?}, profile built ${built_at:-?}"
+	fi
+	if [ -n "$problems" ]; then
+		fail "nixos $host" "$ver: $problems"
+	else
+		pass "nixos $host" "$ver, built ${age_days:-?}d ago, running the current generation"
+	fi
+
+	nixos_cycles="$nixos_cycles $host:$(printf '%s' "$ver" | cut -d. -f1,2)"
+}
+
+nixos_check cafe "$CAFE_ULA"
+nixos_check bead "$BEAD_ULA"
+nixos_check hato "$HATO"
+
+nixos_newest=
+[ -s "$CACHE/nixos" ] && nixos_newest=$(tr '}' '\n' <"$CACHE/nixos" |
+	sed -n 's/.*"cycle":"\([0-9.]*\)".*/\1/p' | head -n 1)
+[ -n "$nixos_newest" ] && value "nixos newest" "$nixos_newest"
+
+# A fresh build from a branch that went end of life is still stale; the release
+# dates are the only place that says so.
+if [ -z "$nixos_cycles" ]; then
+	skip "nixos release" "no host answered"
+elif [ -z "$nixos_newest" ]; then
+	skip "nixos release" "no upstream release list"
+else
+	dead=
+	behind=
+	newest_eol=
+	today_s=$(date +%s)
+	for pair in $nixos_cycles; do
+		host=${pair%%:*}
+		cycle=${pair#*:}
+		eol=$(tr '}' '\n' <"$CACHE/nixos" |
+			grep -F "\"cycle\":\"$cycle\"" |
+			sed -n 's/.*"eol":"\([0-9-]*\)".*/\1/p' | head -n 1)
+		eol_s=$(date -d "$eol" +%s 2>/dev/null)
+		if [ -n "$eol_s" ] && [ "$eol_s" -lt "$today_s" ]; then
+			dead="$dead $host($cycle)"
+		fi
+		if [ "$cycle" = "$nixos_newest" ]; then
+			newest_eol=$eol
+		else
+			behind="$behind $host($cycle)"
+		fi
+	done
+	if [ -n "$dead" ]; then
+		fail "nixos release" "past end of life:$dead"
+	elif [ -n "$behind" ]; then
+		info "nixos release" "$nixos_newest is out;$behind still run an older release"
+	else
+		pass "nixos release" "$nixos_newest is supported (eol $newest_eol)"
+	fi
+fi
+
+# --- disk space --------------------------------------------------------------
+# A full filesystem takes everything else down with it, and nothing here would
+# notice before it happened. Each filesystem is its own check: / can be
+# comfortable while a 3 TB data disk is nearly full three bind mounts away.
+group "disk space"
+
+# Takes the "<percent> <mount> <device>" lines of one host.
+space_checks() {
+	host=$1
+	if [ -z "$2" ]; then
+		skip "$host" "no free-space answer"
+		return
+	fi
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		pct=${line%% *}
+		rest=${line#* }
+		where=${rest%% *}
+		dev=${rest#* }
+		case "$pct" in
+		'' | *[!0-9]*) continue ;;
+		esac
+		# mon-watch reads the label off the first 20 columns, so a path that
+		# does not fit leaves the mountpoint to the value instead.
+		label="$host $where"
+		if [ ${#label} -le 20 ]; then
+			msg="$pct% used"
+		else
+			label="$host $dev"
+			msg="$pct% used on $where"
+		fi
+		if [ "$pct" -ge "$SPACE_MAX_PCT" ]; then
+			fail "$label" "$msg"
+		else
+			pass "$label" "$msg"
+		fi
+	done <<EOF
+$2
+EOF
+}
+
+# busybox df has no -x, so /rom and the tmpfs rows are filtered by mountpoint.
+space_checks mon "$(df -P |
+	awk 'NR > 1 && ($6 == "/" || $6 ~ /^\/mnt\//) { p = $5; sub(/%/, "", p); print p, $6, $1 }')"
+for host in cafe bead hato; do
+	space_checks "$host" "$(sed -n '10,$p' "$CACHE/facts.$host" 2>/dev/null)"
+done
 
 exit "$bad"
