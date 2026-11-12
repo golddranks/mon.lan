@@ -135,18 +135,25 @@ cleared=$(printf '%s\n' "$prev" | while IFS= read -r l; do
 	[ -n "$l" ] || continue
 	printf '%s\n' "$now" | grep -qxF "$l" || printf '%s\n' "$l"
 done)
-value_labels=$(printf '%s\n' "$changed_vals" | sed 's/: .*//' | tr '\n' ' ')
+added_n=$(printf '%s\n' "$added" | grep -c .)
+cleared_n=$(printf '%s\n' "$cleared" | grep -c .)
 
+# The subject says what changed and how much; the lines themselves are in the
+# body, and repeating them here only makes the subject unreadable.
 if [ "$fail_changed" -eq 1 ] && [ -z "$now" ]; then
 	event="no unexpected failures"
-elif [ "$fail_changed" -eq 1 ] && [ -n "$added" ]; then
-	event="new failure: $(printf '%s' "$added" | sed 's/ *$//' | tr '\n' ' ')"
-elif [ "$fail_changed" -eq 1 ] && [ -n "$cleared" ]; then
-	event="failure cleared: $(printf '%s' "$cleared" | sed 's/ *$//' | tr '\n' ' ')"
+elif [ "$fail_changed" -eq 1 ] && [ "$added_n" -gt 0 ]; then
+	if [ "$added_n" -eq 1 ]; then
+		event="1 new failure"
+	else
+		event="$added_n new failures"
+	fi
+elif [ "$fail_changed" -eq 1 ] && [ "$cleared_n" -gt 0 ]; then
+	event="$cleared_n fixed"
 elif [ "$fail_changed" -eq 1 ]; then
 	event="failures changed"
 else
-	event="values changed: $(printf '%s' "$value_labels" | sed 's/ *$//')"
+	event="values changed"
 fi
 
 body=/tmp/mon-watch.$$
