@@ -1,0 +1,19 @@
+#!/bin/sh
+# Compose and send the boot message. Called from two hotplug handlers; the
+# argument says whether the clock has been validated, because before ntpd sets
+# it the box believes the image's build date and every timestamp would be a lie.
+set -u
+
+synced="${1:-unsynced}"
+
+body=/tmp/mon-boot.$$
+{
+	printf 'mon, %s\n\n' "$(date -u +%FT%TZ)"
+	release=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)
+	printf 'booted: %s\n' "${release:-unknown}"
+	printf 'uptime: %s\n' "$(uptime)"
+	[ "$synced" = synced ] || printf 'clock: not synchronised, the box still reads its build date\n'
+} >"$body"
+
+/usr/libexec/mon-send "mon booted" "$body"
+rm -f "$body"

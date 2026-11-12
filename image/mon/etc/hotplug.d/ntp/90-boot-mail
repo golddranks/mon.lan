@@ -1,0 +1,12 @@
+#!/bin/sh
+# The clock has just been validated, so this is the first moment a message can
+# carry a truthful Date and a meaningful uptime. One message per boot; the flag
+# is in /tmp, so it resets with the boot. Backgrounded because the relay can sit
+# on a message for minutes while hotplug would be blocked for the whole of it.
+
+[ "$ACTION" = stratum ] || exit 0
+[ -e /tmp/mon-boot-mailed ] && exit 0
+touch /tmp/mon-boot-mailed
+
+( /usr/libexec/mon-boot-mail synced ) >/dev/null 2>&1 &
+exit 0

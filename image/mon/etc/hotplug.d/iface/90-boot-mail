@@ -1,0 +1,17 @@
+#!/bin/sh
+# Fallback for a boot where the clock is never validated: still say the box is
+# up, saying plainly that the times in the message are the build date. It waits
+# so that a normal boot is served by /etc/hotplug.d/ntp/90-boot-mail instead,
+# which fires seconds after the WAN comes up and carries a real Date.
+
+[ "$ACTION" = ifup ] || exit 0
+[ "$INTERFACE" = wan ] || exit 0
+
+(
+	sleep 120
+	[ -e /tmp/mon-boot-mailed ] && exit 0
+	touch /tmp/mon-boot-mailed
+	/usr/libexec/mon-boot-mail unsynced
+) >/dev/null 2>&1 &
+
+exit 0

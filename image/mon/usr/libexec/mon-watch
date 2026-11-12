@@ -21,11 +21,22 @@ prev=""
 values_seen=0
 [ -f "$VALUES" ] && values_seen=1
 
+# Every message says how old the boot is: a failure reported a minute after a
+# reboot is usually that, and the uptime makes it obvious.
+stamp() {
+	up=$(cut -d. -f1 /proc/uptime)
+	printf 'mon, %s (uptime %sh%02dm)\n' "$(date -u +%FT%TZ)" \
+		"$((up / 3600))" "$((up % 3600 / 60))"
+}
+
 if [ ! -x "$NETDIAG" ]; then
 	# One message, not one per cron run: the state file records this too.
 	[ "$prev" = "netdiag-missing" ] && exit 0
 	body=/tmp/mon-watch.$$
-	printf 'netdiag is not executable at %s\n' "$NETDIAG" > "$body"
+	{
+		stamp
+		printf '\nnetdiag is not executable at %s\n' "$NETDIAG"
+	} > "$body"
 	$SEND "netdiag missing" "$body"
 	rm -f "$body"
 	printf '%s\n' "netdiag-missing" > "$STATE"
@@ -140,7 +151,8 @@ fi
 
 body=/tmp/mon-watch.$$
 {
-	printf 'mon, %s\n\n' "$(date -u +%FT%TZ)"
+	stamp
+	printf '\n'
 	if [ -n "$added" ]; then
 		printf 'new failures:\n'
 		printf '%s\n' "$added" | while IFS= read -r l; do

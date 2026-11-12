@@ -250,6 +250,10 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   `::1/64`, or you get `::::1`.
 - **`scp` to mon needs `-O`**; `ssh 'cat > file' < local` avoids the question
   entirely.
+- **At boot the clock is the image's build time.** ntpd validates it a few
+  seconds after the WAN comes up, and until then every timestamp - a mail's
+  Date header, a syslog line - says the build date. The boot mail waits for the
+  ntp `stratum` hotplug for that reason.
 - **`/tmp/dhcp.leases` is empty on every boot.** It is rebuilt from renewals
   and dnsmasq renews at half a 12 h lease, so an absent lease proves nothing
   until 6 h of renewals have passed; the IoT liveness check waits 7 h before it
