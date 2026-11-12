@@ -21,7 +21,7 @@ time.
   `SkeletoriJailVPN` is IPv4-only, NATted to the WAN and has no route to the
   LAN, for browsing as if from home. Peers live in `/etc/wireguard/<interface>.tsv`
   and are added to their interfaces at first boot.
-- **DDNS** (Gandi): A + AAAA for `bitwarden`, `syncthing`, `webshare`, `cafe`;
+- **DDNS** (Gandi): A + AAAA for `bitwarden`, `syncthing`, `share`, `cafe`;
   AAAA only for `bead` and `llm`. The AAAA is the host's LAN address. `vpn`
   publishes both WAN addresses instead, which is how the WireGuard profiles
   find the router.
