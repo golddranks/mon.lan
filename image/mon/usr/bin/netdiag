@@ -26,6 +26,7 @@ MON_NAME="mon.drasa.eu"
 BAN_NAME="ban.drasa.eu"
 CAFE_NAME="cafe.drasa.eu"
 WEB_NAME="webshare.drasa.eu"
+LLM_NAME="llm.drasa.eu"
 HATO="hato.drasa.eu"
 ula_stem=$(uci -q get network.globals.ula_prefix | sed 's|::/[0-9]*$||')
 ULA="$ula_stem::1"
@@ -68,6 +69,9 @@ dns_answers() {
 }
 
 http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@" 2>/dev/null; }
+
+# One key=value line out of a batch of remote output.
+field() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1; }
 
 on_ban() {
 	ssh -T -i "$GHOST_KEY" "ghost@$BAN_ULA" "$1" 2>/dev/null </dev/null
@@ -420,6 +424,37 @@ else
 	fi
 fi
 
+# SkeletoriJailVPN is the other direction: traffic leaves the line as if it came
+# from home, and nothing private is reachable through it. The client is whichever
+# hato interface holds an address in the jail's subnet.
+jail_if=$(on_hato "ip -4 -o addr show | grep 'inet 10[.]10[.]2[.]' | cut -d' ' -f2 | head -n 1")
+if [ -z "$(on_hato 'echo ok')" ]; then
+	skip "jail vpn egress" "hato is unreachable"
+	skip "jail vpn lan" "hato is unreachable"
+elif [ -z "$jail_if" ]; then
+	skip "jail vpn egress" "hato has no interface in 10.10.2.0/24"
+	skip "jail vpn lan" "hato has no interface in 10.10.2.0/24"
+else
+	# Egress needs the zone's forward to the WAN and its masquerade: the reply
+	# has to come back to hato's private address through the same translation.
+	out=$(on_hato "ping -4 -I $jail_if -c 2 -w 5 8.8.8.8 >/dev/null 2>&1; echo rc=\$?")
+	if [ "$(field "$out" rc)" = 0 ]; then
+		pass "jail vpn egress" "8.8.8.8 through $jail_if"
+
+		# Silence on a private address only means isolation while egress works;
+		# a dead tunnel is silent for both.
+		out=$(on_hato "ping -4 -I $jail_if -c 1 -w 3 10.10.1.1 >/dev/null 2>&1; echo rc=\$?")
+		if [ "$(field "$out" rc)" = 0 ]; then
+			fail "jail vpn lan" "10.10.1.1 answers through $jail_if"
+		else
+			pass "jail vpn lan" "10.10.1.1 unreachable through $jail_if"
+		fi
+	else
+		fail "jail vpn egress" "no reply through $jail_if; the jail VPN is not forwarding"
+		skip "jail vpn lan" "no egress to prove the tunnel carries anything"
+	fi
+fi
+
 # --- web and TLS ------------------------------------------------------------
 group web
 code=$(http_code -k "https://[$ULA]/")
@@ -450,11 +485,52 @@ else
 	fail "cert expiry" "certificate expires within $CERT_MIN_DAYS days"
 fi
 
+# ban has no release process of its own: mon stages the certificate under
+# /etc/ssl/ban and ban's own init script installs it, so this is the only place
+# that sees whether that hand-off worked.
+if openssl s_client -connect "[$BAN_ULA]:443" -servername "$BAN_NAME" </dev/null 2>/dev/null |
+	openssl x509 -checkend "$((CERT_MIN_DAYS * 86400))" -noout >/dev/null 2>&1; then
+	pass "ban cert" "$BAN_NAME valid for more than $CERT_MIN_DAYS days"
+else
+	fail "ban cert" "no usable certificate on [$BAN_ULA]"
+fi
+
 code=$(http_code -k "https://[$CAFE_ULA]/")
 if [ "$code" != "000" ] && [ -n "$code" ]; then
 	pass "cafe 443" "$code from [$CAFE_ULA]"
 else
 	fail "cafe 443" "no answer from [$CAFE_ULA]"
+fi
+
+# bead's LLM vhost proxies to a server that listens on loopback only, so an
+# answer here is the service being alive behind nginx rather than nginx alone.
+# The service is restarted twice a night and answers 503 while the model loads,
+# so that window is a skip. The timeout is generous because a request that
+# arrives during warm-up can sit for tens of seconds before it is answered.
+body=/tmp/netdiag.bead.$$
+code=$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -k \
+	--resolve "$LLM_NAME:443:$BEAD_ULA" "https://$LLM_NAME/" 2>/dev/null)
+case "$code" in
+200) pass "bead http" "$LLM_NAME via [$BEAD_ULA]" ;;
+503)
+	if grep -q 'Loading model' "$body"; then
+		skip "bead http" "the model is loading"
+	else
+		fail "bead http" "503 without a loading message"
+	fi
+	;;
+000 | '') fail "bead http" "no answer from $LLM_NAME" ;;
+*) fail "bead http" "expected 200 from $LLM_NAME, got '$code'" ;;
+esac
+rm -f "$body"
+
+# bead issues its own certificates, so this is the one place that sees whether
+# its renewal works; mon's own cert is checked above.
+if openssl s_client -connect "[$BEAD_ULA]:443" -servername "$LLM_NAME" </dev/null 2>/dev/null |
+	openssl x509 -checkend "$((CERT_MIN_DAYS * 86400))" -noout >/dev/null 2>&1; then
+	pass "bead cert" "$LLM_NAME valid for more than $CERT_MIN_DAYS days"
+else
+	fail "bead cert" "no usable certificate on [$BEAD_ULA]"
 fi
 
 if [ -n "$wan4" ]; then
@@ -592,12 +668,9 @@ done
 # firewall or of what DNS publishes; mon's own view of the same names is above.
 group pub
 
-# field() pulls one key=value line out of a batch of remote output.
-field() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1; }
-
 if [ -z "$(on_hato 'echo ok')" ]; then
 	fail "pub vantage" "$HATO does not answer; the outside checks cannot run"
-	for label in "wan4 input" "wan4 names" "wan6 input" "mon closed" "cafe" "lan ssh" "lan http" "ban closed"; do
+	for label in "wan4 input" "wan4 names" "wan6 input" "mon closed" "cafe" "bead" "lan ssh" "lan http" "ban closed"; do
 		skip "pub $label" "hato is unreachable"
 	done
 else
@@ -658,30 +731,46 @@ else
 		;;
 	esac
 
-	# The name must lead nowhere: AAAA-only, pointing at the ULA, and no answer.
+	# The AAAA is a ULA, which nothing outside the LAN can route, so what the zone
+	# publishes is the whole assertion. hato joins the LAN through SkeletoriLanVPN
+	# and reaches these names that way, so probing them from there proves nothing.
+	# One call per query: a multi-line command ending in `| sed` returned nothing
+	# through on_hato here, reproducibly, and the cause was never found.
 	for pair in "$MON_NAME|$ULA" "$BAN_NAME|$BAN_ULA"; do
 		name=${pair%|*}
 		want=${pair#*|}
 		label=${name%%.*}
-		out=$(on_hato "dig +short A $name | sed 's/^/a=/'
-			dig +short AAAA $name | sed 's/^/aaaa=/'
-			curl -sS -o /dev/null -w 'http=%{http_code}\n' --max-time 6 https://$name/")
-		a=$(field "$out" a)
-		aaaa=$(field "$out" aaaa)
-		http=$(field "$out" http)
-		if [ -z "$a" ] && [ "$aaaa" = "$want" ] && [ "$http" = 000 ]; then
-			pass "pub $label closed" "$name is AAAA-only ($want) and answers nothing"
+		a=$(on_hato "dig +short A $name")
+		aaaa=$(on_hato "dig +short AAAA $name")
+		if [ -z "$a" ] && [ "$aaaa" = "$want" ]; then
+			pass "pub $label closed" "$name is AAAA-only ($want)"
 		else
-			fail "pub $label closed" "A='$a' AAAA='${aaaa:-none}' http=${http:-?}"
+			fail "pub $label closed" "A='$a' AAAA='${aaaa:-none}'"
 		fi
 	done
 
-	# cafe's certificate is what v6 clients verify when they follow the DNS.
-	code=$(on_hato "curl -sS -o /dev/null -w '%{http_code}' --max-time 8 https://$CAFE_NAME/")
+	# cafe's certificate is what v6 clients verify when they follow the DNS, so the
+	# family is pinned: left free, curl reaches cafe over IPv4 and proves nothing.
+	code=$(on_hato "curl -sS -6 -o /dev/null -w '%{http_code}' --max-time 8 https://$CAFE_NAME/")
 	if [ "$code" = 200 ]; then
-		pass "pub cafe" "200 with a verified certificate"
+		pass "pub cafe" "200 over IPv6 with a verified certificate"
 	else
-		fail "pub cafe" "expected 200 with a verified certificate, got '${code:-no answer}'"
+		fail "pub cafe" "expected 200 over IPv6 with a verified certificate, got '${code:-no answer}'"
+	fi
+
+	# bead's name publishes a GUA, so unlike mon and ban it has to answer from
+	# outside: the record, the delegation's routing and the forward rule together.
+	bead6=$(dns_answers "$ddns_resolver" "bead.drasa.eu" AAAA | head -n 1)
+	if [ -z "$bead6" ]; then
+		skip "pub bead" "bead.drasa.eu publishes no AAAA"
+	else
+		out=$(on_hato "ping -6 -c 2 -w 3 $bead6 >/dev/null 2>&1; echo rc=\$?")
+		beadrc=$(field "$out" rc)
+		if [ "$beadrc" = 0 ]; then
+			pass "pub bead" "$bead6 answers echo requests"
+		else
+			fail "pub bead" "$bead6 does not answer; the published address is not routed"
+		fi
 	fi
 
 	# LAN isn't meant to be reachable by SSH, and 80 is forwarded like 443: mon
@@ -692,9 +781,15 @@ else
 		skip "pub lan ssh" "no AAAA for $CAFE_NAME"
 		skip "pub lan http" "no AAAA for $CAFE_NAME"
 	else
-		out=$(on_hato "nc -z -w 3 $cafe6 22 >/dev/null 2>&1; echo s22=\$?")
+		# 443 is the control: if it does not answer, a silent 22 says nothing
+		# about the firewall and everything about the address.
+		out=$(on_hato "nc -z -w 3 $cafe6 443 >/dev/null 2>&1; echo s443=\$?
+			nc -z -w 3 $cafe6 22 >/dev/null 2>&1; echo s22=\$?")
+		s443=$(field "$out" s443)
 		s22=$(field "$out" s22)
-		if [ "$s22" != 0 ]; then
+		if [ "$s443" != 0 ]; then
+			skip "pub lan ssh" "$cafe6 answers on neither 443 nor 22"
+		elif [ "$s22" != 0 ]; then
 			pass "pub lan ssh" "22 refused on $cafe6"
 		else
 			fail "pub lan ssh" "$cafe6 answers on 22 from outside"

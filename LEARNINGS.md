@@ -203,6 +203,26 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
 - **busybox ping is raw-socket only.** It refuses non-root even when
   `net.ipv4.ping_group_range` covers the user's gid; iputils' ping uses ICMP
   datagram sockets and works with the range.
+- **hato's `ping6` is inetutils, not iputils.** `ping6 -c 2 -W 3` exits 64
+  there, while `ping -6 -c 2 -w 5` works, so a probe copied from mon's busybox
+  `ping6` fails on hato for no network reason.
+- **IPv6 literals need brackets in URLs and in `-connect`.** `http://fd42::1/`
+  is not a URL and `-connect fd42::1:443` is not a socket; curl answers `000`,
+  which reads exactly like "nothing is listening".
+
+## WireGuard
+
+- **A public key belongs to one interface.** The peer convergence treats a key
+  found on another interface as moved and recreates it on the current one, so a
+  keypair shared between `lan_vpn` and `jail_vpn` lands wherever the last TSV
+  read puts it and the other line silently does nothing. A host joining two
+  interfaces needs two keypairs.
+- **`uci commit network` does not apply peers, and `ifup` is asynchronous.**
+  `ubus call network reload` does not either; only `ifup <iface>` reconfigures,
+  and `wg show` straight afterwards still lists the old peers for a few seconds.
+- **A client's routes come from its own `allowedIPs`.** A probe peer restricted
+  to `8.8.8.8/32` cannot reach mon's DNS even with the tunnel up: anything
+  outside that list is not routed into the interface at all.
 
 ## Cron
 
@@ -230,3 +250,7 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   `::1/64`, or you get `::::1`.
 - **`scp` to mon needs `-O`**; `ssh 'cat > file' < local` avoids the question
   entirely.
+- **`/tmp/dhcp.leases` is empty on every boot.** It is rebuilt from renewals
+  and dnsmasq renews at half a 12 h lease, so an absent lease proves nothing
+  until 6 h of renewals have passed; the IoT liveness check waits 7 h before it
+  asserts anything, instead of calling every device dead after a flash.
