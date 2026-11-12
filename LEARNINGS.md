@@ -71,7 +71,7 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   servers with different argv and an unchanged pid file after "restarting" it.
   Verify with `ps`, not with the init script's exit status.
 - **The bind was never the security boundary.** The `wan` zone rejects input and
-  `netdiag` asserts 22/80/443 are not accepted there. Binding bought nothing and
+  `checkup` asserts 22/80/443 are not accepted there. Binding bought nothing and
   cost the three entries above.
 
 ## J:COM specifics

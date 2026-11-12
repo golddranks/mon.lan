@@ -83,7 +83,7 @@ on_ban() {
 # run. Everything sent to hato carries its own limit (curl --max-time, nc -w,
 # ping -w).
 on_hato() {
-	out=/tmp/netdiag.hato.$$
+	out=/tmp/checkup.hato.$$
 	ssh -T -i "$GHOST_KEY" "ghost@$HATO" "$1" >"$out" 2>/dev/null </dev/null &
 	pid=$!
 	# The killer's stdio is redirected: it outlives this function when the call
@@ -507,7 +507,7 @@ fi
 # The service is restarted twice a night and answers 503 while the model loads,
 # so that window is a skip. The timeout is generous because a request that
 # arrives during warm-up can sit for tens of seconds before it is answered.
-body=/tmp/netdiag.bead.$$
+body=/tmp/checkup.bead.$$
 code=$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -k \
 	--resolve "$LLM_NAME:443:$BEAD_ULA" "https://$LLM_NAME/" 2>/dev/null)
 case "$code" in

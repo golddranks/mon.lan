@@ -1,5 +1,5 @@
 #!/bin/sh
-# Weekly report: the full netdiag run plus the numbers that have no place in a
+# Weekly report: the full checkup run plus the numbers that have no place in a
 # pass/fail check (Jool counters, routes, recent kernel log).
 set -u
 
@@ -10,8 +10,8 @@ TMP=/tmp/mon-weekly.$$
 	printf 'mon, %s\n' "$(date +%FT%T%z)"
 	printf 'uptime: %s\n\n' "$(uptime)"
 
-	printf '== netdiag ==\n'
-	/usr/bin/netdiag 2>&1
+	printf '== checkup ==\n'
+	/usr/bin/checkup 2>&1
 
 	printf '\n== wan ==\n'
 	ip -4 addr show eth1 2>/dev/null | sed -n 's/^ *inet \(.*\)/ipv4 \1/p'

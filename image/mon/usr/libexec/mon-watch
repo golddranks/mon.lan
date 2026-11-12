@@ -1,16 +1,16 @@
 #!/bin/sh
-# Mail when the set of failing netdiag checks, or an observed value, changes.
+# Mail when the set of failing checkup checks, or an observed value, changes.
 #
 # Labels listed in /root/mon-watch.expected (one per line) are ignored. That
 # file is for temporary known states - while the LAN prefix is wrong, for
 # example - and is deliberately not part of the image.
 #
-# `[value]` lines from netdiag are remembered in /root/mon-watch.values. They
+# `[value]` lines from checkup are remembered in /root/mon-watch.values. They
 # are observations, not checks: a renumbering that stays healthy produces no
 # failure at all, so the values are what make it visible.
 set -u
 
-NETDIAG="${NETDIAG:-/usr/bin/netdiag}"
+CHECKUP="${CHECKUP:-/usr/bin/checkup}"
 SEND="${SEND:-/usr/libexec/mon-send}"
 STATE="${STATE:-/root/mon-watch.state}"
 VALUES="${VALUES:-/root/mon-watch.values}"
@@ -29,29 +29,29 @@ stamp() {
 		"$((up / 3600))" "$((up % 3600 / 60))"
 }
 
-if [ ! -x "$NETDIAG" ]; then
+if [ ! -x "$CHECKUP" ]; then
 	# One message, not one per cron run: the state file records this too.
-	[ "$prev" = "netdiag-missing" ] && exit 0
+	[ "$prev" = "checkup-missing" ] && exit 0
 	body=/tmp/mon-watch.$$
 	{
 		stamp
-		printf '\nnetdiag is not executable at %s\n' "$NETDIAG"
+		printf '\ncheckup is not executable at %s\n' "$CHECKUP"
 	} > "$body"
-	$SEND "netdiag missing" "$body"
+	$SEND "checkup missing" "$body"
 	rm -f "$body"
-	printf '%s\n' "netdiag-missing" > "$STATE"
+	printf '%s\n' "checkup-missing" > "$STATE"
 	exit 1
 fi
 
-out=$($NETDIAG 2>&1)
+out=$($CHECKUP 2>&1)
 
-# netdiag prints "[FAIL] %-20s %s", and the state file records only the label, so
+# checkup prints "[FAIL] %-20s %s", and the state file records only the label, so
 # this recovers the whole line - the reason is what makes it readable.
 fail_line() {
 	printf '%s\n' "$out" | grep -F "[FAIL] $(printf '%-20s' "$1")" || true
 }
 
-# netdiag prints "[FAIL] %-20s %s", so the label is the first 20 columns. netdiag
+# checkup prints "[FAIL] %-20s %s", so the label is the first 20 columns. checkup
 # keeps every label within those 20 characters; a longer one would be cut here
 # and could never match the line fail_line() looks up.
 now=$(printf '%s\n' "$out" |
@@ -83,8 +83,8 @@ now_vals=$(printf '%s\n' "$out" | awk '
 	}' | sort)
 
 # Report a changed value, an appearing one, or a disappearing one. Skipped on
-# the first run (no file yet) and when netdiag printed no values at all: an
-# older or broken netdiag must not look like every value vanished.
+# the first run (no file yet) and when checkup printed no values at all: an
+# older or broken checkup must not look like every value vanished.
 changed_vals=
 if [ "$values_seen" -eq 1 ] && [ -n "$now_vals" ]; then
 	changed_vals=$(printf '%s\n' "$now_vals" | awk -v file="$VALUES" '

@@ -40,12 +40,12 @@ time.
   with a Let's Encrypt one issued through the DNS zone, so no inbound port is
   needed for it. IPv4 :80 redirects to HTTPS; IPv4 :443 is routed by name to
   cafe, which keeps its own certificates.
-- **Diagnostics**: `netdiag` checks the invariants and exits non-zero on
+- **Diagnostics**: `checkup` checks the invariants and exits non-zero on
   failure; `mon-watch` runs it every 10 min and mails when the failing set or a
-  watched value (the delegation, the LAN GUA) changes, so a clean renumbering is
-  still reported (known temporary states are silenced); `mon-weekly` mails
-  netdiag, addressing, routes, Jool counters and the last kernel log lines;
-  failed sends are logged to `/root/mon-notify.log`.
+  watched value (the delegation, the LAN GUA, the newest upstream releases)
+  changes, so a clean renumbering is still reported (known temporary states are
+  silenced); `mon-weekly` mails checkup, addressing, routes, Jool counters and
+  the last kernel log lines; failed sends are logged to `/root/mon-notify.log`.
 
 ## ban
 
@@ -55,7 +55,7 @@ A dumb AP: it bridges, nothing else.
 - Static ULA `fd42:6d6f:6e00::2/64`; LuCI and SSH answer only there and on
   link-local. It takes a default route from mon's Router Advertisements but
   ignores their prefix information, so it forms no GUA — nothing on ban is
-  reachable through a routed prefix — and the netdiag datapath probe sources
+  reachable through a routed prefix — and the checkup datapath probe sources
   from the ULA. No `dnsmasq`/`odhcpd`: mon is the only DHCP, RA and DNS server.
 - Stock LuCI; it serves a Let's Encrypt certificate, staged by mon over the
   ghost key and installed by root's cron. SSH key-only: root for you, `ghost`
