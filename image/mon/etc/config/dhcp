@@ -1,10 +1,9 @@
-# LAN is IPv6-only. `dhcpv4 'disabled'` stops dnsmasq handing out IPv4 leases;
-# this affects dnsmasq only. odhcpd still serves the IPv6 side (RA/SLAAC +
-# DHCPv6) as configured below - odhcpd-ipv6only never serves DHCPv4.
+# The LAN is IPv6-only: no IPv4 leases, and addressing comes from odhcpd
+# (RA/SLAAC for everyone, DHCPv6 for the static host ids below).
 #
-# DNS: dnsmasq remains the LAN resolver (it owns the `lan` domain) but no longer
-# uses the ISP resolvers - it forwards everything to unbound on loopback, which
-# synthesises AAAA records for IPv4-only names (DNS64). See /etc/config/unbound.
+# dnsmasq is still the LAN resolver and owns the `lan` domain, but forwards
+# everything to unbound on loopback, which synthesises AAAA records for
+# IPv4-only names (DNS64). See /etc/config/unbound.
 
 config dnsmasq
 	option domainneeded '1'
@@ -28,13 +27,11 @@ config dnsmasq
 	option ednspacket_max '1232'
 	option filter_aaaa '0'
 	option filter_a '0'
-	# mon.drasa.eu (the name on the TLS certificate) resolves to the router
-	# itself. address_as_local makes it authoritative, so IPv4 lookups get an
-	# empty answer rather than being forwarded upstream.
-	# ban is the access point in the other room; it has a static ULA, so the
-	# name does not depend on a lease or on the delegated prefix. It gets both
-	# the LAN-style name and a drasa.eu name, the latter only for reading.
-	# bead is a Raspberry Pi; llm.drasa.eu is its LLM vhost.
+	# mon.drasa.eu, the name on the TLS certificate, has to resolve to the
+	# router itself. address_as_local makes these answers authoritative, so an
+	# IPv4 lookup returns an empty answer instead of going upstream.
+	# ban has a static ULA, so its names follow neither a lease nor the
+	# delegated prefix. llm.drasa.eu is bead's LLM vhost.
 	option address_as_local '1'
 	list address '/mon.drasa.eu/@ULA@::1'
 	list address '/mon.lan/@ULA@::1'
@@ -44,26 +41,22 @@ config dnsmasq
 	list address '/bead.drasa.eu/@ULA@::bead'
 	list address '/llm.drasa.eu/@ULA@::bead'
 
-# cafe (the server) gets a static DHCPv6 lease: odhcpd matches this DUID and
-# composes cafe's host id onto the LAN prefix, so the GUA is <LAN /64>::cafe and
-# the ULA @ULA@::cafe. The AAAA records in /etc/config/ddns publish the GUA.
-# Without the host id odhcpd hands out an address hashed from the DUID (::c04
-# today), which is stable but meaningless to read.
+# cafe and bead get their host id spelled out: odhcpd composes <LAN /64>::cafe
+# and @ULA@::cafe instead of an address hashed from the DUID, and the address
+# outlives a DUID change. /etc/config/ddns publishes the GUA.
 config host
 	option name 'cafe'
-	option duid '0001000130d93a1e082e5f1bc5f0'
+	option duid '00030001082e5f1bc5f0'
 	option hostid 'cafe'
 
-# bead gets the same treatment: its host id is spelled out so the address
-# survives both the delegation churn and a DUID change.
 config host
 	option name 'bead'
-	option duid '00010001c792bc8adca63208dbfe'
+	option duid '00030001dca63208dbfc'
 	option hostid 'bead'
 
-# The jail's devices, named so dnsmasq serves them as <name>.lan, and fixed so
-# DHCP does not shuffle their addresses. The iPad is not here: iOS rotates its
-# private address, so a lease keyed on it would rot.
+# Fixed jail addresses, so dnsmasq serves them as <name>.lan and DHCP does not
+# shuffle them. The iPad is deliberately absent: iOS rotates its private
+# address, so a lease keyed on it would rot.
 config host
 	option name 'switch2'
 	option mac 'b8:68:70:7c:e7:6c'
