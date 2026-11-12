@@ -254,6 +254,12 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   seconds after the WAN comes up, and until then every timestamp - a mail's
   Date header, a syslog line - says the build date. The boot mail waits for the
   ntp `stratum` hotplug for that reason.
+- **A LAN client reads mon's reboot as the link going away.** cafe's dhcpcd
+  deleted its GUA and routes 14 s after mon stopped answering, re-solicited
+  into mon's boot window, and accepted a REPLY that carried timers but no
+  address; it then waits T1 before asking again - 1350 s in the observed case,
+  not the `expire in 43200` the log also prints. So `cafe.drasa.eu` is
+  IPv6-dead for roughly twenty minutes after every flash.
 - **`/tmp/dhcp.leases` is empty on every boot.** It is rebuilt from renewals
   and dnsmasq renews at half a 12 h lease, so an absent lease proves nothing
   until 6 h of renewals have passed; the IoT liveness check waits 7 h before it
