@@ -192,6 +192,10 @@ body=/tmp/mon-watch.$$
 			fail_line "$l" | sed 's/^/    /'
 		done
 	fi
+	# The body ends on a plain line: a trailing indented block reads as quoted
+	# text to Gmail, which then hides it behind a "..." button.
+	printf '\n'
+	stamp
 } > "$body"
 
 $SEND "$event" "$body"
