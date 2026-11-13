@@ -884,7 +884,7 @@ openwrt_check() {
 openwrt_check "openwrt mon" "$(sed -n "s/^DISTRIB_RELEASE='\(.*\)'/\1/p" /etc/openwrt_release)"
 openwrt_check "openwrt ban" "$(on_ban 'grep DISTRIB_RELEASE /etc/openwrt_release' | sed "s/.*='\(.*\)'/\1/")"
 
-# Each NixOS host reports the build it runs, what it booted and when, then one
+# Each NixOS host reports the build it runs and what it booted, then one
 # "<percent> <mount> <device>" line per real filesystem. The comparison is
 # against the profile rather than /run/current-system, to match should_reboot.sh
 # in the nixos_configs repo.
@@ -893,11 +893,13 @@ nixos_facts() {
 	on_host "$1" 'nixos-version
 		readlink /run/booted-system/initrd /run/booted-system/kernel /run/booted-system/kernel-modules
 		readlink /nix/var/nix/profiles/system/initrd /nix/var/nix/profiles/system/kernel /nix/var/nix/profiles/system/kernel-modules
-		date -d @$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) )) "+%F %R"
-		stat -c %y /nix/var/nix/profiles/system | cut -c1-16
 		df -P -l -x tmpfs -x devtmpfs -x efivarfs -x squashfs |
 		awk '\''NR > 1 && !seen[$1]++ { p = $5; sub(/%/, "", p); print p, $6, $1 }'\'''
 }
+
+# The kernel version inside a store path such as
+# /nix/store/<hash>-linux-6.18.60/bzImage.
+kernel_version() { printf '%s' "$1" | sed -n 's/.*-linux-\([0-9][0-9.]*\).*/\1/p'; }
 
 nixos_cycles=
 nixos_check() {
@@ -925,9 +927,6 @@ nixos_check() {
 		fi
 	fi
 
-	booted_at=$(printf '%s\n' "$facts" | sed -n '8p')
-	built_at=$(printf '%s\n' "$facts" | sed -n '9p')
-
 	# Store paths carry no spaces, so the twins are compared as plain strings.
 	booted_initrd=$(printf '%s\n' "$facts" | sed -n '2p')
 	booted_kernel=$(printf '%s\n' "$facts" | sed -n '3p')
@@ -936,18 +935,33 @@ nixos_check() {
 	built_kernel=$(printf '%s\n' "$facts" | sed -n '6p')
 	built_modules=$(printf '%s\n' "$facts" | sed -n '7p')
 
-	differs=
-	[ "$booted_initrd" = "$built_initrd" ] || differs="$differs initrd"
-	[ "$booted_kernel" = "$built_kernel" ] || differs="$differs kernel"
-	[ "$booted_modules" = "$built_modules" ] || differs="$differs modules"
+	# Name what differs, and treat the two kinds of difference differently: a
+	# kernel version move is a reboot nobody can avoid, while a new store path
+	# with the same version is a rebuilt generation and only a heads-up.
+	booter=$(kernel_version "$booted_kernel")
+	profiler=$(kernel_version "$built_kernel")
+	moved=
+	change=
+	if [ "$booted_kernel" != "$built_kernel" ]; then
+		if [ -n "$booter" ] && [ -n "$profiler" ] && [ "$booter" != "$profiler" ]; then
+			change="kernel $booter -> $profiler"
+			moved=1
+		else
+			change="kernel rebuilt"
+		fi
+	elif [ "$booted_modules" != "$built_modules" ]; then
+		change="modules rebuilt"
+	elif [ "$booted_initrd" != "$built_initrd" ]; then
+		change="initrd rebuilt"
+	fi
+	value "reboot $host" "${change:-none}"
 
 	problems=
 	if [ -n "$behind" ]; then
 		problems="$behind"
 	fi
-	if [ -n "$differs" ]; then
-		what=$(printf '%s' "$differs" | sed 's/^ //; s/ /, /g')
-		problems="${problems:+$problems, }a reboot is pending ($what): booted ${booted_at:-?}, profile built ${built_at:-?}"
+	if [ -n "$moved" ]; then
+		problems="${problems:+$problems; }a reboot is pending: $change"
 	fi
 	if [ -n "$problems" ]; then
 		fail "nixos $host" "$ver: $problems"
@@ -1070,7 +1084,7 @@ EOF
 space_checks mon "$(df -P |
 	awk 'NR > 1 && ($6 == "/" || $6 ~ /^\/mnt\//) { p = $5; sub(/%/, "", p); print p, $6, $1 }')"
 for host in cafe bead hato; do
-	space_checks "$host" "$(sed -n '10,$p' "$CACHE/facts.$host" 2>/dev/null)"
+	space_checks "$host" "$(sed -n '8,$p' "$CACHE/facts.$host" 2>/dev/null)"
 done
 
 exit "$bad"
