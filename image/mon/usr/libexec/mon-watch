@@ -15,6 +15,10 @@ SEND="${SEND:-/usr/libexec/mon-send}"
 STATE="${STATE:-/root/mon-watch.state}"
 VALUES="${VALUES:-/root/mon-watch.values}"
 EXPECTED="${EXPECTED:-/root/mon-watch.expected}"
+# How long to wait before looking again at a failure that was not there last
+# time. Five minutes outlives a reboot window or a service restart; the second
+# look is what decides whether the mail is sent.
+CONFIRM_SECONDS="${CONFIRM_SECONDS:-300}"
 
 prev=""
 [ -f "$STATE" ] && prev=$(cat "$STATE")
@@ -51,36 +55,59 @@ fail_line() {
 	printf '%s\n' "$out" | grep -F "[FAIL] $(printf '%-20s' "$1")" || true
 }
 
-# checkup prints "[FAIL] %-20s %s", so the label is the first 20 columns. checkup
-# keeps every label within those 20 characters; a longer one would be cut here
-# and could never match the line fail_line() looks up.
-now=$(printf '%s\n' "$out" |
-	sed -n 's/^\[FAIL\] //p' |
-	cut -c1-20 |
-	sed 's/ *$//' |
-	sort -u)
+# Extracts the failing labels into $now and the observed values into $now_vals.
+# checkup prints "[FAIL] %-20s %s", so a label is the first 20 columns; checkup
+# keeps every label within those, and a longer one would be cut here and could
+# never match the line fail_line() looks up.
+collect() {
+	now=$(printf '%s\n' "$out" |
+		sed -n 's/^\[FAIL\] //p' |
+		cut -c1-20 |
+		sed 's/ *$//' |
+		sort -u)
 
-if [ -f "$EXPECTED" ]; then
-	# Strip comments and blanks first: an empty pattern in -f makes grep match
-	# every line, which would silently suppress all failures.
-	list=/tmp/mon-watch.expect.$$
-	sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$EXPECTED" > "$list"
-	if [ -s "$list" ]; then
-		now=$(printf '%s\n' "$now" | grep -vxF -f "$list" || true)
+	if [ -f "$EXPECTED" ]; then
+		# Strip comments and blanks first: an empty pattern in -f makes grep
+		# match every line, which would silently suppress all failures.
+		list=/tmp/mon-watch.expect.$$
+		sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$EXPECTED" > "$list"
+		if [ -s "$list" ]; then
+			now=$(printf '%s\n' "$now" | grep -vxF -f "$list" || true)
+		fi
+		rm -f "$list"
 	fi
-	rm -f "$list"
-fi
-now=$(printf '%s\n' "$now" | sed '/^$/d')
+	now=$(printf '%s\n' "$now" | sed '/^$/d')
 
-# The same 20-column layout, so a value's label is comparable too.
-now_vals=$(printf '%s\n' "$out" | awk '
-	/^\[value\] / {
-		label = substr($0, 9, 20)
-		sub(/ +$/, "", label)
-		val = substr($0, 29)
-		sub(/^ +/, "", val)
-		print label "=" val
-	}' | sort)
+	# The same 20-column layout, so a value's label is comparable too.
+	now_vals=$(printf '%s\n' "$out" | awk '
+		/^\[value\] / {
+			label = substr($0, 9, 20)
+			sub(/ +$/, "", label)
+			val = substr($0, 29)
+			sub(/^ +/, "", val)
+			print label "=" val
+		}' | sort)
+}
+
+# Labels failing now that were not failing in the previous run.
+appeared() {
+	printf '%s\n' "$now" | while IFS= read -r l; do
+		[ -n "$l" ] || continue
+		printf '%s\n' "$prev" | grep -qxF "$l" || printf '%s\n' "$l"
+	done
+}
+
+out=$($CHECKUP 2>&1)
+collect
+
+# Nothing is mailed on a first sighting: a reboot window, a service restart or a
+# flapping link is over by the time a second run looks, and a real failure is
+# not. One extra run, and only when something new showed up.
+if [ -n "$(appeared)" ]; then
+	sleep "$CONFIRM_SECONDS"
+	out=$($CHECKUP 2>&1)
+	collect
+fi
 
 # Report a changed value, an appearing one, or a disappearing one. Skipped on
 # the first run (no file yet) and when checkup printed no values at all: an
@@ -127,10 +154,7 @@ value_changed=0
 	exit 0
 }
 
-added=$(printf '%s\n' "$now" | while IFS= read -r l; do
-	[ -n "$l" ] || continue
-	printf '%s\n' "$prev" | grep -qxF "$l" || printf '%s\n' "$l"
-done)
+added=$(appeared)
 cleared=$(printf '%s\n' "$prev" | while IFS= read -r l; do
 	[ -n "$l" ] || continue
 	printf '%s\n' "$now" | grep -qxF "$l" || printf '%s\n' "$l"

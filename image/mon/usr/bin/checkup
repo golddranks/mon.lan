@@ -39,6 +39,8 @@ CERT_MIN_DAYS=14
 NIXOS_PIN_MAX_LAG_DAYS=3
 NIXOS_HOST_MAX_LAG_DAYS=1
 SPACE_MAX_PCT=90
+CACHE=/tmp/checkup.cache
+mkdir -p "$CACHE"
 GHOST_KEY="/root/.ssh/id_ed25519"
 
 bad=0
@@ -509,25 +511,17 @@ fi
 
 # bead's LLM vhost proxies to a server that listens on loopback only, so an
 # answer here is the service being alive behind nginx rather than nginx alone.
-# The service is restarted twice a night and answers 503 while the model loads,
-# so that window is a skip. The timeout is generous because a request that
-# arrives during warm-up can sit for tens of seconds before it is answered.
-body=/tmp/checkup.bead.$$
-code=$(curl -s -o "$body" -w '%{http_code}' --max-time 30 -k \
+# The service restarts twice a night and answers 503 while the model loads, which
+# is why mon-watch re-checks before mailing anything. The timeout is generous
+# because a request that arrives during warm-up can sit for tens of seconds
+# before it is answered.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -k \
 	--resolve "$LLM_NAME:443:$BEAD_ULA" "https://$LLM_NAME/" 2>/dev/null)
 case "$code" in
 200) pass "bead http" "$LLM_NAME via [$BEAD_ULA]" ;;
-503)
-	if grep -q 'Loading model' "$body"; then
-		skip "bead http" "the model is loading"
-	else
-		fail "bead http" "503 without a loading message"
-	fi
-	;;
 000 | '') fail "bead http" "no answer from $LLM_NAME" ;;
 *) fail "bead http" "expected 200 from $LLM_NAME, got '$code'" ;;
 esac
-rm -f "$body"
 
 # bead issues its own certificates, so this is the one place that sees whether
 # its renewal works; mon's own cert is checked above.
@@ -821,9 +815,7 @@ fi
 # no copy at all the checks skip, because unknown is not current.
 group versions
 
-CACHE=/tmp/checkup.cache
 UPSTREAM_MAX_AGE=86400
-mkdir -p "$CACHE"
 
 # fetch <name> <url> refreshes $CACHE/<name> when it is missing or a day old.
 fetch() {
