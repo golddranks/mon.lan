@@ -46,7 +46,7 @@ headers() {
 
 if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
 	err=/tmp/mon-send.$$
-	if { headers; printf '%s\n\n' "$event"; cat "$body"; } |
+	if { headers; cat "$body"; } |
 		msmtp "$to" 2>"$err"; then
 		rm -f "$err"
 		exit 0

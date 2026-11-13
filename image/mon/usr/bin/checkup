@@ -901,6 +901,12 @@ nixos_facts() {
 # /nix/store/<hash>-linux-6.18.60/bzImage.
 kernel_version() { printf '%s' "$1" | sed -n 's/.*-linux-\([0-9][0-9.]*\).*/\1/p'; }
 
+# A store path shortened to what identifies it: eight hash characters and the
+# name, e.g. 853rfz7n…-initrd-linux-6.18.62.
+short_store() {
+	printf '%s' "$1" | sed 's|^/nix/store/||; s|/.*||; s|^\(.\{8\}\)[^-]*|\1…|'
+}
+
 nixos_cycles=
 nixos_check() {
 	host=$1
@@ -935,33 +941,46 @@ nixos_check() {
 	built_kernel=$(printf '%s\n' "$facts" | sed -n '6p')
 	built_modules=$(printf '%s\n' "$facts" | sed -n '7p')
 
-	# Name what differs, and treat the two kinds of difference differently: a
-	# kernel version move is a reboot nobody can avoid, while a new store path
-	# with the same version is a rebuilt generation and only a heads-up.
+	# What differs decides two different things. A kernel version move is a
+	# reboot nobody can avoid, and it fails. A rebuilt generation at the same
+	# version is a heads-up through the value. The value is one word so that
+	# a change line stays readable; versions belong to the failure line.
 	booter=$(kernel_version "$booted_kernel")
 	profiler=$(kernel_version "$built_kernel")
+	pending=
 	moved=
-	change=
+	bpath=
+	ppath=
 	if [ "$booted_kernel" != "$built_kernel" ]; then
+		pending=kernel
+		bpath=$booted_kernel
+		ppath=$built_kernel
 		if [ -n "$booter" ] && [ -n "$profiler" ] && [ "$booter" != "$profiler" ]; then
-			change="kernel $booter -> $profiler"
 			moved=1
-		else
-			change="kernel rebuilt"
 		fi
 	elif [ "$booted_modules" != "$built_modules" ]; then
-		change="modules rebuilt"
+		pending=modules
+		bpath=$booted_modules
+		ppath=$built_modules
 	elif [ "$booted_initrd" != "$built_initrd" ]; then
-		change="initrd rebuilt"
+		pending=initrd
+		bpath=$booted_initrd
+		ppath=$built_initrd
 	fi
-	value "reboot $host" "${change:-none}"
+	value "reboot $host" "${pending:-none}"
+
+	# The paths behind the value, so a hash-only rebuild can be inspected
+	# without an ssh; a version move is explained by the failure line.
+	if [ -n "$pending" ] && [ -z "$moved" ]; then
+		info "reboot $host" "$pending $(short_store "$bpath") -> $(short_store "$ppath")"
+	fi
 
 	problems=
 	if [ -n "$behind" ]; then
 		problems="$behind"
 	fi
 	if [ -n "$moved" ]; then
-		problems="${problems:+$problems; }a reboot is pending: $change"
+		problems="${problems:+$problems; }a reboot is pending: kernel $booter -> $profiler"
 	fi
 	if [ -n "$problems" ]; then
 		fail "nixos $host" "$ver: $problems"

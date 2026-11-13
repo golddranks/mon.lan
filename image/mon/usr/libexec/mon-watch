@@ -1,10 +1,6 @@
 #!/bin/sh
 # Mail when the set of failing checkup checks, or an observed value, changes.
 #
-# Labels listed in /root/mon-watch.expected (one per line) are ignored. That
-# file is for temporary known states - while the LAN prefix is wrong, for
-# example - and is deliberately not part of the image.
-#
 # `[value]` lines from checkup are remembered in /root/mon-watch.values. They
 # are observations, not checks: a renumbering that stays healthy produces no
 # failure at all, so the values are what make it visible.
@@ -12,16 +8,21 @@ set -u
 
 CHECKUP="${CHECKUP:-/usr/bin/checkup}"
 SEND="${SEND:-/usr/libexec/mon-send}"
-STATE="${STATE:-/root/mon-watch.state}"
+FAILURES="${FAILURES:-/root/mon-watch.failures}"
 VALUES="${VALUES:-/root/mon-watch.values}"
-EXPECTED="${EXPECTED:-/root/mon-watch.expected}"
 # How long to wait before looking again at a failure that was not there last
 # time. Five minutes outlives a reboot window or a service restart; the second
 # look is what decides whether the mail is sent.
 CONFIRM_SECONDS="${CONFIRM_SECONDS:-300}"
 
+# One run at a time. A run outlasts the ten minutes between cron firings - the
+# second look alone sleeps five - so a second one would decide against a state
+# the first has not written yet, and mail the same failures again.
+exec 9>/tmp/mon-watch.lock
+flock -n 9 || exit 0
+
 prev=""
-[ -f "$STATE" ] && prev=$(cat "$STATE")
+[ -f "$FAILURES" ] && prev=$(cat "$FAILURES")
 values_seen=0
 [ -f "$VALUES" ] && values_seen=1
 
@@ -41,13 +42,15 @@ if [ ! -x "$CHECKUP" ]; then
 		stamp
 		printf '\ncheckup is not executable at %s\n' "$CHECKUP"
 	} > "$body"
-	$SEND "checkup missing" "$body"
+	printf '%s\n' "checkup-missing" > "$FAILURES"
+	$SEND "checkup missing" "$body" 9>&-
 	rm -f "$body"
-	printf '%s\n' "checkup-missing" > "$STATE"
 	exit 1
 fi
 
-out=$($CHECKUP 2>&1)
+# The lock's descriptor is closed around the children: one that lingers would
+# keep the lock and silence every later run.
+out=$($CHECKUP 2>&1 9>&-)
 
 # checkup prints "[FAIL] %-20s %s", and the state file records only the label, so
 # this recovers the whole line - the reason is what makes it readable.
@@ -66,17 +69,16 @@ collect() {
 		sed 's/ *$//' |
 		sort -u)
 
-	if [ -f "$EXPECTED" ]; then
-		# Strip comments and blanks first: an empty pattern in -f makes grep
-		# match every line, which would silently suppress all failures.
-		list=/tmp/mon-watch.expect.$$
-		sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$EXPECTED" > "$list"
-		if [ -s "$list" ]; then
-			now=$(printf '%s\n' "$now" | grep -vxF -f "$list" || true)
-		fi
-		rm -f "$list"
-	fi
-	now=$(printf '%s\n' "$now" | sed '/^$/d')
+	# `[info]` lines whose label matches a value annotate that value in the mail,
+	# so a value can stay one word and still show what it is about.
+	now_notes=$(printf '%s\n' "$out" | awk '
+		/^\[info\] / {
+			label = substr($0, 8, 20)
+			sub(/ +$/, "", label)
+			note = substr($0, 28)
+			sub(/^ +/, "", note)
+			print label "=" note
+		}')
 
 	# The same 20-column layout, so a value's label is comparable too.
 	now_vals=$(printf '%s\n' "$out" | awk '
@@ -97,7 +99,7 @@ appeared() {
 	done
 }
 
-out=$($CHECKUP 2>&1)
+out=$($CHECKUP 2>&1 9>&-)
 collect
 
 # Nothing is mailed on a first sighting: a reboot window, a service restart or a
@@ -105,7 +107,7 @@ collect
 # not. One extra run, and only when something new showed up.
 if [ -n "$(appeared)" ]; then
 	sleep "$CONFIRM_SECONDS"
-	out=$($CHECKUP 2>&1)
+	out=$($CHECKUP 2>&1 9>&-)
 	collect
 fi
 
@@ -149,9 +151,9 @@ value_changed=0
 
 [ "$fail_changed" -eq 0 ] && [ "$value_changed" -eq 0 ] && {
 	# Still record, or the first run would never seed the files.
-	printf '%s\n' "$now" > "$STATE"
+	printf '%s\n' "$now" > "$FAILURES"
 	[ -n "$now_vals" ] && printf '%s\n' "$now_vals" > "$VALUES"
-	exit 0
+		exit 0
 }
 
 added=$(appeared)
@@ -165,7 +167,7 @@ cleared_n=$(printf '%s\n' "$cleared" | grep -c .)
 # The subject says what changed and how much; the lines themselves are in the
 # body, and repeating them here only makes the subject unreadable.
 if [ "$fail_changed" -eq 1 ] && [ -z "$now" ]; then
-	event="no unexpected failures"
+	event="no failures"
 elif [ "$fail_changed" -eq 1 ] && [ "$added_n" -gt 0 ]; then
 	if [ "$added_n" -eq 1 ]; then
 		event="1 new failure"
@@ -182,8 +184,6 @@ fi
 
 body=/tmp/mon-watch.$$
 {
-	stamp
-	printf '\n'
 	if [ -n "$added" ]; then
 		printf 'new failures:\n'
 		printf '%s\n' "$added" | while IFS= read -r l; do
@@ -199,21 +199,20 @@ body=/tmp/mon-watch.$$
 	fi
 	if [ -n "$changed_vals" ]; then
 		printf 'values changed:\n'
-		printf '%s\n' "$changed_vals" | sed 's/^/  /'
+		printf '%s\n' "$changed_vals" | while IFS= read -r line; do
+			[ -n "$line" ] || continue
+			printf '  %s\n' "$line"
+			printf '%s\n' "$now_notes" | grep -F "${line%%:*}=" | cut -d= -f2- | sed 's/^/    /'
+		done
 		printf '\n'
 	fi
-	printf 'current state:\n'
 	if [ -z "$now" ]; then
-		printf '  no unexpected failures\n'
-		if [ -f "$EXPECTED" ]; then
-			printf '\nignored by %s:\n' "$EXPECTED"
-			printf '%s\n' "$out" | grep '^\[FAIL\]' | sed 's/^/  /' || true
-		fi
+		printf 'no failures\n'
 	else
-		printf '  unexpected failures:\n'
+		printf 'current failures:\n'
 		printf '%s\n' "$now" | while IFS= read -r l; do
 			[ -n "$l" ] || continue
-			fail_line "$l" | sed 's/^/    /'
+			fail_line "$l" | sed 's/^/  /'
 		done
 	fi
 	# The body ends on a plain line: a trailing indented block reads as quoted
@@ -222,10 +221,12 @@ body=/tmp/mon-watch.$$
 	stamp
 } > "$body"
 
-$SEND "$event" "$body"
-rm -f "$body"
-
-printf '%s\n' "$now" > "$STATE"
+# Recorded before the send: msmtp can spend two minutes on the wire, and the
+# state has to be current by the time the next cron run looks.
+printf '%s\n' "$now" > "$FAILURES"
 [ -n "$now_vals" ] && printf '%s\n' "$now_vals" > "$VALUES"
+
+$SEND "$event" "$body" 9>&-
+rm -f "$body"
 
 exit 0
