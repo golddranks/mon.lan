@@ -1,7 +1,8 @@
 # Extra packages baked into the image.
 #
-# Target/profile default packages are included automatically; prefix an entry
-# with '-' to drop a default. Audit the result in the generated *.manifest.
+# Target/profile default packages are included automatically.
+# Prefix an entry with '-' to drop a default.
+# Audit the result in the generated *.manifest.
 
 # --- Web UI (not part of the default package set; a bare image is CLI-only) ---
 luci
@@ -49,7 +50,7 @@ acme-acmesh
 acme-acmesh-dnsapi
 
 # --- Mail alerts (mon-watch / mon-weekly; config in /etc/msmtprc) ---
-# Full msmtp, not msmtp-nossl: Gmail needs TLS, and libgnutls comes with it.
+# Full msmtp, not msmtp-nossl: the relay requires TLS.
 msmtp
 # /etc/msmtprc pins tls_trust_file at /etc/ssl/certs/ca-certificates.crt. curl
 # pulls ca-bundle in today, but depending on that is accidental.

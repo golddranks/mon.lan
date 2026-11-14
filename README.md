@@ -43,9 +43,9 @@ time.
 - **Diagnostics**: `checkup` checks the invariants and exits non-zero on
   failure; `mon-watch` runs it every 10 min and mails when the failing set or a
   watched value (the delegation, the LAN GUA, the newest upstream releases)
-  changes, so a clean renumbering is still reported (known temporary states are
-  silenced); `mon-weekly` mails checkup, addressing, routes, Jool counters and
-  the last kernel log lines; failed sends are logged to `/root/mon-notify.log`.
+  changes, so a clean renumbering is still reported; `mon-weekly` mails checkup,
+  addressing, routes, Jool counters and the last kernel log lines; failed sends
+  are logged to `/root/mon-notify.log`.
 
 ## ban
 
@@ -58,8 +58,9 @@ A dumb AP: it bridges, nothing else.
   reachable through a routed prefix — and the checkup datapath probe sources
   from the ULA. No `dnsmasq`/`odhcpd`: mon is the only DHCP, RA and DNS server.
 - Stock LuCI; it serves a Let's Encrypt certificate, staged by mon over the
-  ghost key and installed by root's cron. SSH key-only: root for you, `ghost`
-  for mon's probes; time from mon. Offset channels (2.4 GHz: 6, 5 GHz: 52 — DFS).
+  ghost key and installed by a service on ban. SSH key-only: root for you,
+  `ghost` for mon's probes; time from mon. Offset channels (2.4 GHz: 6, 5 GHz:
+  52 — DFS).
 
 ## Layout and building
 
@@ -67,7 +68,7 @@ A dumb AP: it bridges, nothing else.
 build/nix-run.sh        enter the pinned environment, then ./lima-run.sh
 build/lima-run.sh       start the Linux VM and run build.sh in it
 build/build.sh          build one device
-build/packages/         packages to bake in ('-name' removes a default)
+build/packages/         packages to bake in
 build/manifests/        resolved package sets; a build fails if one changes
 build/vars.sed          values substituted into the overlay (@ULA@, @FT_MDID@)
 build/flake.nix         pinned lima (qemu x86_64) environment
@@ -80,6 +81,9 @@ cd build
 cp ../secrets.sed.example ../secrets.sed   # fill in every token
 ./nix-run.sh mon                           # -> build/.work/<device>/
 ```
+
+The tree must be clean: `build.sh` refuses a checkout that carries changes
+outside a commit, and bakes the commit it found into `/etc/mon-commit`.
 
 `build.sh` downloads a pinned ImageBuilder, renders the overlay
 (`build/vars.sed`, then `secrets.sed`), fetches `authorized_keys` from the

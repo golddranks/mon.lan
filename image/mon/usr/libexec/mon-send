@@ -7,15 +7,15 @@
 #
 # The subject is the week's, not the event's: Gmail threads on the subject and
 # ignores References that point at a differently titled message, so every report
-# between two weekly ones carries the same "mon: <date>". The event goes on the
-# body's first line, which is what the list snippet shows. MON_THREAD_NEW=1
-# starts the week: it names it and records the thread root.
+# between two weekly ones carries the same "mon: <date>". MON_THREAD_NEW=1
+# starts the week: it names it and records the thread root. The event names the
+# line written to /root/mon-notify.log when a send fails.
 set -u
 
 event="$1"
 body="$2"
 
-to="${MON_MAIL_TO:-@ADMIN_EMAIL@}"
+to="@ADMIN_EMAIL@"
 thread=/root/mon-thread
 
 msgid="<$(date +%s).$$@mon.drasa.eu>"
@@ -44,22 +44,17 @@ headers() {
 	printf '\n'
 }
 
-if [ -n "$to" ] && command -v msmtp >/dev/null 2>&1; then
-	err=/tmp/mon-send.$$
-	if { headers; cat "$body"; } |
-		msmtp "$to" 2>"$err"; then
-		rm -f "$err"
-		exit 0
-	fi
-	# /tmp/msmtp.log is in RAM; keep the reason with the message itself.
-	{
-		printf '%s %s\n' "$(date +%FT%T%z)" "$event"
-		printf 'delivery failed, msmtp said:\n'
-		sed 's/^/  /' "$err"
-		cat "$body"
-	} >> /root/mon-notify.log
+err=/tmp/mon-send.$$
+if { headers; cat "$body"; } | msmtp "$to" 2>"$err"; then
 	rm -f "$err"
 	exit 0
 fi
 
-{ printf '%s %s\n' "$(date +%FT%T%z)" "$event"; cat "$body"; } >> /root/mon-notify.log
+# /tmp/msmtp.log is in RAM; keep the reason with the message itself.
+{
+	printf '%s %s\n' "$(date +%FT%T%z)" "$event"
+	printf 'delivery failed, msmtp said:\n'
+	sed 's/^/  /' "$err"
+	cat "$body"
+} >> /root/mon-notify.log
+rm -f "$err"

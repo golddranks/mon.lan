@@ -2,8 +2,8 @@
 set -eu
 
 # Build one device's OpenWrt image with all settings baked in.
-# Usage: ./build.sh <device>
-# Run inside the Linux build VM (see nix-run.sh / lima-run.sh).
+# Run through nix-run.sh, which enters the pinned environment and the VM:
+#   ./nix-run.sh <device>
 
 # OpenWrt release. Each device pins the sha256 of its own ImageBuilder tarball.
 OPENWRT_VERSION="25.12.6"
@@ -51,8 +51,19 @@ VARS="${SCRIPT_DIR}/vars.sed"
 PUBKEYS_URL="https://raw.githubusercontent.com/golddranks/pubkeys/main/authorized_keys_strict"
 
 # --- build dependencies ----------------------------------------------------
-sudo apt-get install -y build-essential file libncurses-dev zlib1g-dev gawk git \
-	libssl-dev xsltproc rsync wget unzip python3 python3-setuptools zstd acme.sh
+sudo apt-get install -y build-essential file gawk git wget unzip python3 zstd acme.sh
+
+# --- clean tree ------------------------------------------------------------
+# The image records the commit it came from, so a build refuses a checkout that
+# carries changes outside a commit. --no-optional-locks keeps the guest from
+# writing the index: this checkout belongs to the host, read over sshfs.
+changed=$(git --no-optional-locks -C "${REPO_DIR}" status --porcelain)
+if [ -n "${changed}" ]; then
+	printf 'refusing to build: the tree carries changes outside a commit:\n%s\n' \
+		"${changed}" >&2
+	exit 1
+fi
+COMMIT=$(git --no-optional-locks -C "${REPO_DIR}" rev-parse HEAD)
 
 # --- certificate seed ------------------------------------------------------
 # The image carries a current certificate so that a flash does not spend one of
@@ -97,6 +108,10 @@ fi
 if [ -f "${FILES_DIR}/etc/config/network" ]; then
 	chmod 600 "${FILES_DIR}/etc/config/network"
 fi
+
+# --- commit ----------------------------------------------------------------
+# Which commit the image came from, so the running box can say it.
+printf '%s\n' "${COMMIT}" >"${FILES_DIR}/etc/mon-commit"
 
 # --- validate secrets ------------------------------------------------------
 # The root password hash is opaque, so a typo in it is invisible in a diff and
@@ -260,13 +275,12 @@ make image \
 	FILES="${FILES_DIR}"
 
 # --- collect artifacts -----------------------------------------------------
-# Only the top-level target files (image, manifest, ...) and the rendered
-# overlay; the per-package apk tree is large and only needed during the build.
+# Only the top-level target files (image, manifest, ...); the rendered overlay
+# stays in the guest, since it carries the substituted secrets.
 rm -rf "${OUT_DIR}"
 mkdir -p "${OUT_DIR}/targets"
 find "bin/targets/${TARGET_PATH}" -maxdepth 1 -type f \
 	-exec cp -a {} "${OUT_DIR}/targets/" \;
-cp -a "${FILES_DIR}" "${OUT_DIR}/files"
 
 # --- package set ------------------------------------------------------------
 # The ImageBuilder tarball is pinned by checksum, but the package feeds are not:

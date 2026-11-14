@@ -3,7 +3,7 @@
 # pass/fail check (Jool counters, routes, recent kernel log).
 set -u
 
-SEND="${SEND:-/usr/libexec/mon-send}"
+SEND=/usr/libexec/mon-send
 TMP=/tmp/mon-weekly.$$
 
 {
@@ -33,6 +33,6 @@ TMP=/tmp/mon-weekly.$$
 
 # The weekly report starts the mail thread and names the week: every message mon
 # sends until the next report carries the same subject, which is what keeps them
-# in one conversation. The event itself goes on the body's first line.
+# in one conversation.
 MON_THREAD_NEW=1 $SEND "weekly report" "$TMP"
 rm -f "$TMP"

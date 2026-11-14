@@ -60,7 +60,7 @@ config service 'share_a'
 	option ip_network 'wan'
 	option use_syslog '2'
 
-# --- AAAA records (cafe's GUA, suffix ::cafe) ---
+# --- AAAA records (the LAN /64 plus the host id) ---
 
 config service 'bitwarden_aaaa'
 	option enabled '1'

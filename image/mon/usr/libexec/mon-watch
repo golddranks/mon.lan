@@ -6,14 +6,14 @@
 # failure at all, so the values are what make it visible.
 set -u
 
-CHECKUP="${CHECKUP:-/usr/bin/checkup}"
-SEND="${SEND:-/usr/libexec/mon-send}"
-FAILURES="${FAILURES:-/root/mon-watch.failures}"
-VALUES="${VALUES:-/root/mon-watch.values}"
+CHECKUP=/usr/bin/checkup
+SEND=/usr/libexec/mon-send
+FAILURES=/root/mon-watch.failures
+VALUES=/root/mon-watch.values
 # How long to wait before looking again at a failure that was not there last
 # time. Five minutes outlives a reboot window or a service restart; the second
 # look is what decides whether the mail is sent.
-CONFIRM_SECONDS="${CONFIRM_SECONDS:-300}"
+CONFIRM_SECONDS=300
 
 # One run at a time. A run outlasts the ten minutes between cron firings - the
 # second look alone sleeps five - so a second one would decide against a state
@@ -47,10 +47,6 @@ if [ ! -x "$CHECKUP" ]; then
 	rm -f "$body"
 	exit 1
 fi
-
-# The lock's descriptor is closed around the children: one that lingers would
-# keep the lock and silence every later run.
-out=$($CHECKUP 2>&1 9>&-)
 
 # checkup prints "[FAIL] %-20s %s", and the state file records only the label, so
 # this recovers the whole line - the reason is what makes it readable.
@@ -99,6 +95,8 @@ appeared() {
 	done
 }
 
+# The lock's descriptor is closed around the children: one that lingers would
+# keep the lock and silence every later run.
 out=$($CHECKUP 2>&1 9>&-)
 collect
 

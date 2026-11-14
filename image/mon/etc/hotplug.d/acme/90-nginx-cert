@@ -13,7 +13,7 @@
 src=/etc/ssl/acme
 ban_host=fd42:6d6f:6e00::2
 ban_key=/root/.ssh/id_ed25519
-ban_ssh="ssh -T -o BatchMode=yes -i $ban_key ghost@$ban_host"
+ban_ssh="ssh -T -i $ban_key ghost@$ban_host"
 ban_dir=/home/ghost/incoming
 
 if [ -s "$src/mon.drasa.eu.fullchain.crt" ] && [ -s "$src/mon.drasa.eu.key" ]; then

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Print the GUA of a LAN host whose host id comes from a static DHCPv6 lease
-# (cafe's, see the `config host` entry in /etc/config/dhcp). The /64 comes from
-# the delegation and the host id does not change, so only the network part
-# moves. Used as ddns-scripts' ip_script, which passes the host id as $1:
+# (see the `config host` entries in /etc/config/dhcp). The /64 comes from the
+# delegation and the host id does not change, so only the network part moves.
+# Used as ddns-scripts' ip_script, which passes the host id as $1:
 #
 #     lan_suffix.sh cafe  ->  2405:1200:54e:a100::cafe
 

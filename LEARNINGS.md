@@ -35,8 +35,7 @@ prefer a line of fact over a paragraph of reasoning.
   overlay carries `@ULA@` and `build.sh` substitutes it the same way it
   substitutes secrets, refusing to ship a leftover `@TOKEN@`. Scripts derive
   the same value from uci instead. Consequence: files under `image/` are
-  templates - the copy to put on a box is the rendered one in
-  `build/.work/<device>/files/`.
+  templates, and the copies that reach a box are the rendered ones.
 - **Names are not values.** A name somebody chose (a domain, an SSID, a host id)
   is its own best spelling and stays literal. An arbitrary value - an address, a
   prefix, an opaque id like the 802.11r mobility domain - is a candidate for a
@@ -70,9 +69,9 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
 - **`/etc/init.d/dropbear restart` can silently no-op.** We found two live
   servers with different argv and an unchanged pid file after "restarting" it.
   Verify with `ps`, not with the init script's exit status.
-- **The bind was never the security boundary.** The `wan` zone rejects input and
-  `checkup` asserts 22/80/443 are not accepted there. Binding bought nothing and
-  cost the three entries above.
+- **The bind was never the security boundary.** The `wan` zone rejects input,
+  and `checkup` asks from outside whether 22/80/443 are refused there. Binding
+  bought nothing and cost the three entries above.
 
 ## J:COM specifics
 
@@ -234,10 +233,12 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
 
 ## Method
 
-- **`sysupgrade -n` throws away `/etc/acme`, so every flash is a new issuance.**
-  Let's Encrypt allows 5 certificates per 168 h for the same set of names, so a
-  day of flashing left the box serving the image's self-signed placeholder until
-  the window rolled over. `acme renew` runs hourly and recovers by itself.
+- **`acme-common` decides renew-versus-issue by its store in `/etc/acme`, not by
+  the certificate being served.** `sysupgrade -n` wipes both, so an image with a
+  certificate but no store issues again on first boot; a day of flashing spent
+  the 5 certificates per 168 h Let's Encrypt allows and left the box on the
+  self-signed placeholder until the window rolled over. The build now bakes the
+  store beside the certificate, so a flash presents what the last build seeded.
 - **A hotplug hook is not self-healing.** The adaptive `95-pin-lan` only fired on
   `wan6 ifup`, so it was neither sufficient nor simple. A user-run recipe plus a
   checker that measures beats code that guesses.

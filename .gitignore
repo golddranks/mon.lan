@@ -1,6 +1,7 @@
 secrets.sed
 secrets/
 *.key
+.DS_Store
 
 # build artifacts
 build/.work/

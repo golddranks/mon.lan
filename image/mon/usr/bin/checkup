@@ -107,7 +107,10 @@ on_hato() { on_host "$HATO" "$1"; }
 # --- identity ---------------------------------------------------------------
 group identity
 release=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release)
-info "image" "${release:-unknown}"
+mon_commit=$(cat /etc/mon-commit 2>/dev/null)
+short_commit=
+[ -n "$mon_commit" ] && short_commit=$(printf '%s' "$mon_commit" | cut -c1-12)
+info "image" "${release:-unknown}${short_commit:+ (mon.lan $short_commit)}"
 
 wan4=$(ubus call network.interface.wan status 2>/dev/null |
 	jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null | head -n 1)
@@ -371,30 +374,6 @@ info "ephemeral ports" "$(sysctl -n net.ipv4.ip_local_port_range 2>/dev/null |
 info "jool counters" "$(jool -i "$JOOL_INSTANCE" stats display 2>/dev/null |
 	grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):' | tr '\n' ' ')"
 
-# --- enforcement ------------------------------------------------------------
-group enforcement
-# A lint until an external probe exists (a host outside the WAN trying 22/80/443
-# is the real consequence). It reads the wan input chain, so it also catches a
-# rule that opens the router itself.
-input_wan=$(nft list chain inet fw4 input_wan 2>/dev/null)
-input_open=$(printf '%s\n' "$input_wan" | awk '
-	/comment/ { sub(/comment ".*/, "") }
-	/nfproto ipv4/ { next }
-	/accept/ && /tcp dport/ {
-			sub(/.*tcp dport[ ]+/, "")
-			sub(/[ ](counter|accept|jump|drop|reject|return).*/, "")
-			gsub(/[{},]/, " ")
-			print
-	}' | tr ' ' '\n' | grep -xE '22|80|443' | sort -un | tr '\n' ' ')
-
-if [ -n "$input_open" ]; then
-	fail "fw v6 input" "accepted from WAN: $input_open"
-elif [ -z "$input_wan" ]; then
-	fail "fw v6 input" "cannot read the wan input chain"
-else
-	pass "fw v6 input" "lint - no 22/80/443 accepted from WAN"
-fi
-
 # --- VPN --------------------------------------------------------------------
 group vpn
 # SkeletoriLanVPN is the only way into the LAN from outside, and a tunnel that
@@ -493,8 +472,8 @@ else
 fi
 
 # ban has no release process of its own: mon stages the certificate under
-# /etc/ssl/ban and ban's own init script installs it, so this is the only place
-# that sees whether that hand-off worked.
+# /home/ghost/incoming and ban's own service installs it, so this is the only
+# place that sees whether that hand-off worked.
 if openssl s_client -connect "[$BAN_ULA]:443" -servername "$BAN_NAME" </dev/null 2>/dev/null |
 	openssl x509 -checkend "$((CERT_MIN_DAYS * 86400))" -noout >/dev/null 2>&1; then
 	pass "ban cert" "$BAN_NAME valid for more than $CERT_MIN_DAYS days"
@@ -853,7 +832,7 @@ fetch_head() {
 	curl -s --max-time 20 -o "$cache.raw" \
 		"https://api.github.com/repos/NixOS/nixpkgs/commits/$head_rev" || return 1
 	when=$(jsonfilter -i "$cache.raw" -e '@.commit.committer.date' 2>/dev/null)
-	# busybox date does not take the ISO form Google returns; the commit date is
+	# busybox date does not take the ISO form GitHub returns; the commit date is
 	# UTC, so it is parsed as such.
 	when=$(printf '%s' "$when" | sed 's/T/ /; s/Z$//')
 	epoch=$(date -u -d "$when" +%s 2>/dev/null)

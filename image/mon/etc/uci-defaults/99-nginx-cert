@@ -1,8 +1,8 @@
 #!/bin/sh
-# nginx refuses to start if its ssl_certificate is missing, but Let's Encrypt
-# has not run yet on a fresh boot. So put a self-signed placeholder at the path
-# nginx expects; /etc/hotplug.d/acme/90-nginx-cert replaces it with the real
-# certificate once issuance succeeds.
+# nginx refuses to start if its ssl_certificate is missing, and an image built
+# without a seed has none until Let's Encrypt runs. So put a self-signed
+# placeholder at the path nginx expects; /etc/hotplug.d/acme/90-nginx-cert
+# replaces it with the real certificate once issuance succeeds.
 
 crt=/etc/ssl/nginx/mon.drasa.eu.crt
 key=/etc/ssl/nginx/mon.drasa.eu.key
