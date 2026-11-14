@@ -36,7 +36,7 @@ BEAD_ULA="$ula_stem::bead"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
-NIXOS_PIN_MAX_LAG_DAYS=3
+NIXOS_HEAD_MIN_AGE_DAYS=2
 NIXOS_HOST_MAX_LAG_DAYS=1
 SPACE_MAX_PCT=90
 CACHE=/tmp/checkup.cache
@@ -991,11 +991,19 @@ else
 	case "$pin_rev" in
 	"$head_rev"*) pass "nixos pin" "the lock pins the $nixos_newest head" ;;
 	*)
-		pin_lag=$(((head_epoch - pin_date) / 86400))
-		if [ "$pin_lag" -gt "$NIXOS_PIN_MAX_LAG_DAYS" ]; then
-			fail "nixos pin" "the lock is $pin_lag days behind the $nixos_newest head ($(printf '%s' "$head_rev" | cut -c1-8))"
+		pin_day=$(date -u -d "@$pin_date" +%F)
+		head_day=$(date -u -d "@$head_epoch" +%F)
+		# Days as the two dates read, not the elapsed seconds: the message shows
+		# both dates, and a reader comparing them expects the number to match.
+		pin_lag=$((($(date -u -d "$head_day" +%s) - $(date -u -d "$pin_day" +%s)) / 86400))
+		head_age=$((($(date -u -d "$(date -u +%F)" +%s) - $(date -u -d "$head_day" +%s)) / 86400))
+		if [ "$head_age" -lt "$NIXOS_HEAD_MIN_AGE_DAYS" ]; then
+			# A branch that just moved has given the lock nothing to follow yet.
+			pass "nixos pin" "the head ($head_day) is not $NIXOS_HEAD_MIN_AGE_DAYS days old yet; the pin can follow"
+		elif [ "$pin_lag" -lt 0 ]; then
+			pass "nixos pin" "the lock ($pin_day) is newer than the $nixos_newest head ($head_day)"
 		else
-			pass "nixos pin" "the lock is $pin_lag days behind the $nixos_newest head"
+			fail "nixos pin" "the lock ($pin_day) is $pin_lag days behind the $nixos_newest head ($head_day, $(printf '%s' "$head_rev" | cut -c1-8))"
 		fi
 		;;
 	esac
