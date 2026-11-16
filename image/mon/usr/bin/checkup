@@ -1149,45 +1149,58 @@ done
 # /run/disk-health readable, because smartctl needs root and ghost has none.
 # SMART reports a disk before it drops out, so it is the earliest of the three.
 group disks
+cafe_up=$(on_host "$CAFE_ULA" 'echo up' 2>/dev/null)
 report=$(on_host "$CAFE_ULA" 'stat -c %Y /run/disk-health 2>/dev/null
 	cat /run/disk-health 2>/dev/null')
 mtime=$(printf '%s\n' "$report" | sed -n '1p')
-case "$mtime" in
-'' | *[!0-9]*) skip "cafe smart" "cafe reports no disk health" ;;
-*)
-	body=$(printf '%s\n' "$report" | sed '1d')
-	problems=$(printf '%s\n' "$body" | awk '
-		$1 == "smart" && $3 != "PASSED" { print $2 " " $3 }
-		/^Error summary:/ && !/no errors found/ { print }')
-	age=$(( $(date +%s) - mtime ))
-	if [ "$age" -gt 7200 ]; then
-		fail "cafe smart" "the hourly report is $(( age / 3600 ))h old"
-	elif [ -n "$problems" ]; then
-		fail "cafe smart" "$(printf '%s' "$problems" | tr '\n' ' ')"
-	else
-		pass "cafe smart" "$(printf '%s\n' "$body" | grep -c '^smart ') disks PASSED, scrub clean"
-	fi
-	;;
-esac
-cafe_devs=$(on_host "$CAFE_ULA" 'ls /sys/fs/btrfs/*/devinfo/*/missing' 2>/dev/null |
-	grep -c .)
-cafe_gone=$(on_host "$CAFE_ULA" 'grep -lx 1 /sys/fs/btrfs/*/devinfo/*/missing' 2>/dev/null)
-if [ "$cafe_devs" -eq 0 ]; then
-	skip "cafe raid" "cafe reports no btrfs devices"
-elif [ -n "$cafe_gone" ]; then
-	fail "cafe raid" "missing from the filesystem: $(printf '%s' "$cafe_gone" | tr '\n' ' ')"
+if [ "$cafe_up" != up ]; then
+	skip "cafe smart" "cafe does not answer"
+	skip "cafe raid" "cafe does not answer"
+	skip "cafe btrfs" "cafe does not answer"
 else
-	pass "cafe raid" "$cafe_devs devices, none missing"
-fi
+	case "$mtime" in
+	'' | *[!0-9]*) skip "cafe smart" "cafe wrote no report" ;;
+	*)
+		body=$(printf '%s\n' "$report" | sed '1d')
+		problems=$(printf '%s\n' "$body" | awk '
+			$1 == "smart" && $3 != "PASSED" { print $2 " " $3 }
+			/^Error summary:/ && !/no errors found/ { print }')
+		scrub=$(printf '%s\n' "$body" | sed -n 's/^Status:[[:space:]]*//p' | head -n 1)
+		age=$(( $(date +%s) - mtime ))
+		if [ "$age" -gt 7200 ]; then
+			fail "cafe smart" "the hourly report is $(( age / 3600 ))h old"
+		elif [ -n "$problems" ]; then
+			fail "cafe smart" "$(printf '%s' "$problems" | tr '\n' ' ')"
+		elif [ -z "$scrub" ]; then
+			fail "cafe smart" "no scrub status in the report; /mnt/Avaruus is not mounted"
+		elif [ "$scrub" != finished ] && [ "$scrub" != running ]; then
+			fail "cafe smart" "the last scrub is $scrub"
+		else
+			pass "cafe smart" "$(printf '%s\n' "$body" | grep -c '^smart ') disks PASSED, scrub $scrub"
+		fi
+		;;
+	esac
 
-cafe_stats=$(on_host "$CAFE_ULA" 'btrfs device stats /mnt/Avaruus' 2>/dev/null)
-cafe_errs=$(printf '%s\n' "$cafe_stats" | awk '$NF != 0')
-if [ -z "$cafe_stats" ]; then
-	skip "cafe btrfs" "no device statistics from cafe"
-elif [ -z "$cafe_errs" ]; then
-	pass "cafe btrfs" "no device errors"
-else
-	fail "cafe btrfs" "$(printf '%s' "$cafe_errs" | tr '\n' ' ')"
+	cafe_devs=$(on_host "$CAFE_ULA" 'ls /sys/fs/btrfs/*/devinfo/*/missing' 2>/dev/null |
+		grep -c .)
+	cafe_gone=$(on_host "$CAFE_ULA" 'grep -lx 1 /sys/fs/btrfs/*/devinfo/*/missing' 2>/dev/null)
+	if [ "$cafe_devs" -eq 0 ]; then
+		fail "cafe raid" "no btrfs devices; /mnt/Avaruus is not mounted"
+	elif [ -n "$cafe_gone" ]; then
+		fail "cafe raid" "missing from the filesystem: $(printf '%s' "$cafe_gone" | tr '\n' ' ')"
+	else
+		pass "cafe raid" "$cafe_devs devices, none missing"
+	fi
+
+	cafe_stats=$(on_host "$CAFE_ULA" 'btrfs device stats /mnt/Avaruus' 2>/dev/null)
+	cafe_errs=$(printf '%s\n' "$cafe_stats" | awk '$NF != 0')
+	if [ -z "$cafe_stats" ]; then
+		fail "cafe btrfs" "no device statistics; /mnt/Avaruus is not mounted"
+	elif [ -z "$cafe_errs" ]; then
+		pass "cafe btrfs" "no device errors"
+	else
+		fail "cafe btrfs" "$(printf '%s' "$cafe_errs" | tr '\n' ' ')"
+	fi
 fi
 
 exit "$bad"
