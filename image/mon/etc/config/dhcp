@@ -12,6 +12,9 @@ config dnsmasq
 	option localise_queries '1'
 	option rebind_protection '1'
 	option rebind_localhost '1'
+	# mon's and ban's ULAs are in the zone, and dnsmasq discards private answers
+	# like unbound would; the exception is the same one, see /etc/unbound.
+	list rebind_domain '/drasa.eu/'
 	option local '/lan/'
 	option domain 'lan'
 	option expandhosts '1'
@@ -27,13 +30,16 @@ config dnsmasq
 	option ednspacket_max '1232'
 	option filter_aaaa '0'
 	option filter_a '0'
-	# The `lan` names have no other source: odhcpd knows nothing about a host
-	# without a lease, and ban's ULA is static while the delegated prefix moves.
-		# address_as_local makes these answers authoritative, so an IPv4 lookup
+	# A LAN name also comes out of odhcpd's hosts file, which lives in /tmp and is
+	# empty after every boot: without an entry here the name is missing until its
+	# host renews.
+	# address_as_local makes these answers authoritative, so an IPv4 lookup
 	# returns an empty answer instead of going upstream.
 	option address_as_local '1'
 	list address '/mon.lan/@ULA@::1'
 	list address '/ban.lan/@ULA@::2'
+	list address '/cafe.lan/@ULA@::cafe'
+	list address '/bead.lan/@ULA@::bead'
 
 # cafe and bead get their host id spelled out: odhcpd composes <LAN /64>::cafe
 # and @ULA@::cafe instead of an address hashed from the DUID, and the address
