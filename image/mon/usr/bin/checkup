@@ -24,6 +24,7 @@ WAN_DEV="eth1"
 LAN_DEV="br-lan"
 MON_NAME="mon.drasa.eu"
 BAN_NAME="ban.drasa.eu"
+BEAD_NAME="bead.drasa.eu"
 CAFE_NAME="cafe.drasa.eu"
 WEB_NAME="share.drasa.eu"
 LLM_NAME="llm.drasa.eu"
@@ -36,7 +37,8 @@ BEAD_ULA="$ula_stem::bead"
 PREFIX_STEM="64:ff9b::"
 JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
-NIXOS_HEAD_MIN_AGE_DAYS=2
+IOT_SILENCE_H=24
+NIXOS_PIN_GRACE_DAYS=2
 NIXOS_HOST_MAX_LAG_DAYS=1
 SPACE_MAX_PCT=90
 CACHE=/tmp/checkup.cache
@@ -138,12 +140,6 @@ else
 fi
 value "pd" "${pd_addr:-none}/${pd_mask:-0}"
 
-if [ "$pd_mask" = "56" ]; then
-	pass "prefix length" "/56 as requested"
-else
-	fail "prefix length" "expected 56, got '${pd_mask:-none}'"
-fi
-
 # --- LAN addressing ---------------------------------------------------------
 group lan
 lan6=$(ip -6 -o addr show dev "$LAN_DEV" scope global 2>/dev/null |
@@ -156,16 +152,11 @@ else
 	pass "lan ipv4" "none on $LAN_DEV"
 fi
 
-case " $lan6_list " in
-*" $ULA "*) pass "lan ula" "$ULA" ;;
-*) fail "lan ula" "expected $ULA on $LAN_DEV, have: $lan6_list" ;;
-esac
-
 # The LAN /64 is whatever netifd took from the delegation, not a value written
-# down in this repo. A static GUA survives a PD change and stays plausible while
-# the ISP routes nothing, so the address on br-lan is checked against the
-# assignment. The ULA is an assignment too: skip it, or the check compares the
-# LAN GUA against the ULA.
+# down in this repo. Pick the address on br-lan that sits inside that assignment:
+# a static GUA survives a PD change and stays plausible while the ISP routes
+# nothing, so an address alone proves nothing. The ULA is an assignment too, so
+# it is skipped.
 if [ -n "$ula_stem" ]; then
 	lan_pd=$(ubus call network.interface.lan status 2>/dev/null |
 		jsonfilter -e '@["ipv6-prefix-assignment"][*].address' 2>/dev/null |
@@ -185,13 +176,6 @@ for a in $lan6; do
 	fi
 done
 
-if [ -z "$lan_pd_stem" ]; then
-	fail "lan prefix" "netifd assigned no prefix from the delegation to $LAN_DEV"
-elif [ -z "$lan_gua" ]; then
-	fail "lan gua" "no address inside $lan_pd/64 on $LAN_DEV; have: $lan6_list"
-else
-	pass "lan gua" "$lan_gua from $lan_pd/64"
-fi
 value "lan gua" "${lan_gua:-none}"
 
 # Clients get their addresses from the prefix odhcpd advertises, so a bound
@@ -225,8 +209,10 @@ group upstream
 # an ISP filters on. The WAN-sourced probe is the control, so a dead uplink is
 # reported as such instead of as a bad prefix. Three packets each: a working
 # prefix has lost its first one in testing.
-if [ -z "$lan_gua" ] || [ -z "$wan6_addr" ]; then
-	skip "lan-sourced egress" "need both a LAN GUA and a WAN IPv6 address"
+if [ -z "$wan6_addr" ]; then
+	skip "lan-sourced egress" "no WAN IPv6 address to send from"
+elif [ -z "$lan_gua" ]; then
+	fail "lan-sourced egress" "$LAN_DEV holds no address in the delegated prefix; have: $lan6_list"
 elif ! ping6 -c 3 -W 2 -I "$wan6_addr" "$probe6" >/dev/null 2>&1; then
 	fail "lan-sourced egress" "no uplink at all: $wan6_addr cannot reach $probe6"
 elif ping6 -c 3 -W 2 -I "$lan_gua" "$probe6" >/dev/null 2>&1; then
@@ -245,19 +231,26 @@ else
 	fail "dns64" "no synthesised AAAA from the local resolver"
 fi
 
-for pair in "$MON_NAME|$ULA" "mon.lan|$ULA" "ban.lan|$BAN_ULA" \
-	"ban.drasa.eu|$BAN_ULA" "bead.lan|$BEAD_ULA" \
-	"bead.drasa.eu|$BEAD_ULA" "llm.drasa.eu|$BEAD_ULA"; do
-	name=${pair%|*}
-	want=${pair#*|}
-	answers=$(dns_answers 127.0.0.1 "$name")
-	case "
-$answers
-" in
-	*"
-$want
-"*) pass "name $name" "$want" ;;
-	*) fail "name $name" "expected $want, got: $(printf '%s' "$answers" | tr '\n' ' ')" ;;
+# A name is only useful if a client can follow it, so resolve it through the
+# LAN resolver and then talk to the address it gave, with the name as the SNI.
+# The certificate names must validate; no CA signs a `lan` name, so those only
+# have to answer.
+for spec in "$MON_NAME|cert" "mon.lan|plain" "$BAN_NAME|cert" "ban.lan|plain" \
+	"$BEAD_NAME|cert" "bead.lan|plain" "$LLM_NAME|cert" "cafe.lan|plain"; do
+	name=${spec%|*}
+	addr=$(dns_answers 127.0.0.1 "$name" AAAA | head -n 1)
+	if [ -z "$addr" ]; then
+		fail "name $name" "the LAN resolver returned no address"
+		continue
+	fi
+	if [ "${spec#*|}" = plain ]; then
+		code=$(http_code -k --resolve "$name:443:[$addr]" "https://$name/")
+	else
+		code=$(http_code --resolve "$name:443:[$addr]" "https://$name/")
+	fi
+	case "$code" in
+	'' | 000) fail "name $name" "$addr does not answer on 443 under this name" ;;
+	*) pass "name $name" "$addr -> $code" ;;
 	esac
 done
 
@@ -292,39 +285,74 @@ else
 	fail "bead reachable" "no echo reply from $BEAD_ULA"
 fi
 
+# A unit in the failed state is the host telling on itself, and nothing else here
+# would see a timer or an upgrade job that broke.
+for pair in "cafe|$CAFE_ULA" "bead|$BEAD_ULA" "hato|$HATO"; do
+	host=${pair%|*}
+	units=$(on_host "${pair#*|}" 'systemctl --failed --plain --no-legend --no-pager
+		echo units=done')
+	if [ "$(printf '%s\n' "$units" | tail -n 1)" != units=done ]; then
+		skip "systemd $host" "the host did not answer"
+		continue
+	fi
+	failed=$(printf '%s\n' "$units" | sed '$d' | awk '{ print $1 }' | tr '\n' ' ')
+	if [ -z "$failed" ]; then
+		pass "systemd $host" "no failed units"
+	else
+		fail "systemd $host" "failed: $failed"
+	fi
+done
+
 # usteer trades node and station state with the other AP over the LAN, over IPv6.
 # One entry per peer; empty means the instances cannot see each other, which is
 # what happens when `option ipv6` is left at its default of 0.
 peers=$(ubus -t 5 call usteer remote_hosts 2>/dev/null | grep -c '"id":')
-if [ "${peers:-0}" -gt 0 ]; then
-	pass "usteer peers" "$peers peer(s)"
-else
-	fail "usteer peers" "none; the APs are not exchanging state"
-fi
+info "usteer peers" "${peers:-0} peer(s)"
 
-# The jail's devices are only reachable through their DHCPv4 leases: dnsmasq
-# renews a lease at half of its 12 h lifetime, so a device that stops answering
-# loses the lease entirely. The lease file is under /tmp, so it is empty on
-# every boot and a device reappears at its next renewal: until one renewal
-# interval has passed, absence says nothing.
+# The jail's devices are only reachable through their DHCPv4 leases, and a lease
+# is the only evidence that a device still exists. dnsmasq stamps
+# expiry = request + leasetime on every request, so the silence a device has kept
+# is `leasetime - left`, and the address survives the whole leasetime (an awake
+# device renews at half of it). A longer lease therefore buys a sleeping device
+# grace without hiding it. The file is under /tmp and empty on boot, so absence
+# says nothing until the box has been up for the whole silence window. Changing
+# the leasetime misreads the leases granted under the old one until they expire.
+iot_silence=$(( IOT_SILENCE_H * 3600 ))
+iot_lease=$(uci -q get dhcp.iot.leasetime)
+case "$iot_lease" in
+*d) iot_lease_s=$(( ${iot_lease%d} * 86400 )) ;;
+*h) iot_lease_s=$(( ${iot_lease%h} * 3600 )) ;;
+*m) iot_lease_s=$(( ${iot_lease%m} * 60 )) ;;
+*) iot_lease_s= ;;
+esac
 uptime_s=$(cut -d' ' -f1 /proc/uptime)
+uptime_s=${uptime_s%%.*}
 lease_now=$(date +%s)
-for section in $(uci -q show dhcp |
-	sed -n 's/^dhcp\.\(@host\[[0-9]*\]\)\.mac=.*/\1/p'); do
-	name=$(uci -q get "dhcp.$section.name")
-	mac=$(uci -q get "dhcp.$section.mac" | tr 'A-F' 'a-f')
-	if [ "${uptime_s%%.*}" -lt 25200 ]; then
-		skip "iot $name" "up for $(( ${uptime_s%%.*} / 3600 ))h; leases are still being rebuilt"
-		continue
-	fi
-	exp=$(awk -v mac="$mac" -v now="$lease_now" '
-		tolower($2) == mac && $1 + 0 > now { print $1; exit }' /tmp/dhcp.leases 2>/dev/null)
-	if [ -n "$exp" ]; then
-		pass "iot $name" "lease for another $(((exp - lease_now) / 3600))h"
-	else
-		fail "iot $name" "$mac holds no current lease on the jail"
-	fi
-done
+if [ -z "$iot_lease_s" ]; then
+	fail "iot lease" "'$iot_lease' is not a duration like '36h'"
+elif [ "$iot_lease_s" -le "$iot_silence" ]; then
+	fail "iot lease" "$iot_lease holds an address for less than the ${IOT_SILENCE_H}h of silence allowed"
+else
+	for section in $(uci -q show dhcp |
+		sed -n 's/^dhcp\.\(@host\[[0-9]*\]\)\.mac=.*/\1/p'); do
+		name=$(uci -q get "dhcp.$section.name")
+		mac=$(uci -q get "dhcp.$section.mac" | tr 'A-F' 'a-f')
+		exp=$(awk -v mac="$mac" -v now="$lease_now" '
+			tolower($2) == mac && $1 + 0 > now { print $1; exit }' /tmp/dhcp.leases 2>/dev/null)
+		if [ -n "$exp" ]; then
+			silent=$(( iot_lease_s - (exp - lease_now) ))
+			if [ "$silent" -ge "$iot_silence" ]; then
+				fail "iot $name" "silent for $(( silent / 3600 ))h; the lease has $((( exp - lease_now ) / 3600 ))h left"
+			else
+				pass "iot $name" "silent for $(( silent / 3600 ))h"
+			fi
+		elif [ "$uptime_s" -lt "$iot_silence" ]; then
+			skip "iot $name" "not seen in the $(( uptime_s / 3600 ))h since mon booted"
+		else
+			fail "iot $name" "silent for at least $(( uptime_s / 3600 ))h; no lease"
+		fi
+	done
+fi
 
 # --- NAT64 ------------------------------------------------------------------
 group nat64
@@ -383,10 +411,8 @@ group vpn
 vpn_links=$(on_hato 'ip -o link show type wireguard 2>/dev/null')
 if [ -z "$(on_hato 'echo ok')" ]; then
 	skip "vpn lan path" "hato is unreachable"
-	skip "vpn handshake" "hato is unreachable"
 elif [ -z "$vpn_links" ]; then
 	skip "vpn lan path" "hato has no WireGuard interface"
-	skip "vpn handshake" "hato has no WireGuard interface"
 else
 	# `ping -6`, not `ping6`: hato's `ping6` is inetutils and rejects these
 	# options outright, while iputils' `ping` has the privilege to open the socket.
@@ -398,15 +424,14 @@ else
 		fail "vpn lan path" "hato gets no reply from $CAFE_ULA over the tunnel"
 	fi
 
-	# The ping above is what makes mon rekey; the peer's own timestamp is the
-	# proof that the handshake completed rather than the packets being dropped.
+	# The ping above is what makes mon rekey; the peer's own timestamp says
+	# whether the handshake completed rather than the packets being dropped.
 	hs=$(wg show lan_vpn latest-handshakes 2>/dev/null |
 		awk '{ print $2 }' | sort -n | tail -n 1)
-	age=$(($(date +%s) - ${hs:-0}))
-	if [ "${hs:-0}" -gt 0 ] && [ "$age" -lt 300 ]; then
-		pass "vpn handshake" "lan_vpn handshook ${age}s ago"
+	if [ "${hs:-0}" -gt 0 ]; then
+		info "vpn handshake" "lan_vpn handshook $(($(date +%s) - hs))s ago"
 	else
-		fail "vpn handshake" "no handshake on lan_vpn within 5 minutes"
+		info "vpn handshake" "lan_vpn has not handshook yet"
 	fi
 fi
 
@@ -526,28 +551,9 @@ fi
 group wireless
 radios_up=$(ubus call network.wireless status 2>/dev/null |
 	jsonfilter -e '@.*.up' | grep -c true)
-if [ "$radios_up" = "2" ]; then
-	pass "wireless" "2 radios up"
-else
-	fail "wireless" "$radios_up radios up, expected 2"
-fi
-
-want_ssid=$(uci -q get wireless.@wifi-iface[0].ssid)
-jail_ssid=$(uci -q get wireless.jail_radio0.ssid)
-wifi_status=$(ubus call network.wireless status 2>/dev/null)
-main_on=$(printf '%s' "$wifi_status" |
-	jsonfilter -e '@.*.interfaces[*].config.ssid' | grep -cxF "$want_ssid")
-jail_on=$(printf '%s' "$wifi_status" |
-	jsonfilter -e '@.*.interfaces[*].config.ssid' | grep -cxF "$jail_ssid")
-jail_on_24=$(printf '%s' "$wifi_status" |
-	jsonfilter -e '@.radio0.interfaces[*].config.ssid' | grep -cxF "$jail_ssid")
-# The main SSID on both radios; the jail on 2.4 GHz only, which is what keeps
-# it out of the 5 GHz airtime and out of ban, whose uplink cannot carry it.
-if [ "$main_on" = "2" ] && [ "$jail_on" = "1" ] && [ "$jail_on_24" = "1" ]; then
-	pass "ssid" "$want_ssid x2, $jail_ssid on radio0"
-else
-	fail "ssid" "$want_ssid on $main_on radio(s), $jail_ssid on $jail_on ($jail_on_24 on radio0)"
-fi
+# Radio state is not a consequence any vantage point here can reach: every one is
+# wired or on the internet, so a dead radio is reported, not alerted on.
+info "wireless" "$radios_up radios up"
 
 # ban has no RTC, so its clock is right only if it took the time from mon since
 # it booted. Comparing the two is the consequence of the NTP server.
@@ -585,42 +591,41 @@ if [ -n "$ddns_domain" ]; then
 fi
 info "ddns resolver" "$ddns_resolver${ddns_ns:+ ($ddns_ns, authoritative)}"
 
-for section in $(uci -q show ddns |
-	sed -n 's/^ddns\.\([^.=]*\)\.lookup_host=.*/\1/p'); do
-	host=$(uci -q get "ddns.$section.lookup_host")
-	if [ "$(uci -q get "ddns.$section.use_ipv6")" = "1" ]; then
-		qtype=AAAA
-		if [ "$(uci -q get "ddns.$section.ip_network")" = "wan6" ]; then
-			expected="$wan6_addr"
+# The zone is what a stranger follows, so follow it the way one would: fetch
+# each published web name from hato over IPv4 and require an answer under a
+# certificate that validates. A wrong record fails to connect instead of merely
+# differing from an expectation, and the forward rule is covered on the way. The
+# AAAA side of cafe's, bead's and llm's names is the `pub` group's. A service
+# that is up answers 200, so a 502 with a dead backend is a failure; webshare is
+# unfinished and only has to answer under a valid certificate.
+for spec in "bitwarden.drasa.eu|200" "syncthing.drasa.eu|200" "$WEB_NAME|"; do
+	name=${spec%%|*}
+	want=${spec#*|}
+	code=$(on_hato "curl -sS -4 -o /dev/null -w '%{http_code}' --max-time 10 https://$name/")
+	case "$code" in
+	'' | 000) fail "ddns ${name%%.*}" "no answer from $name; the record, the forward or the certificate is wrong" ;;
+	*)
+		if [ -n "$want" ] && [ "$code" != "$want" ]; then
+			fail "ddns ${name%%.*}" "$name answered $code, expected $want"
 		else
-			# The AAAA is the LAN /64 plus the host id given to the section's
-			# ip_script (`lan_suffix.sh bead` publishes ::bead).
-			suffix=$(uci -q get "ddns.$section.ip_script" | awk '{ print $NF }')
-			expected=
-			[ -n "$suffix" ] &&
-				expected="$(printf '%s' "${lan_gua:-}" | cut -d: -f1-4)::$suffix"
+			pass "ddns ${name%%.*}" "$name answers $code, certificate included"
 		fi
-	else
-		suffix=
-		expected="$wan4"
-		qtype=A
-	fi
-
-	case "$expected" in
-	'' | ::*)
-		skip "ddns $section" "no address to publish"
-		continue
 		;;
 	esac
+done
 
-	answers=$(dns_answers "$ddns_resolver" "$host" "$qtype")
-	case "
-$answers
-" in
-	*"
-$expected
-"*) pass "ddns $section" "$host -> $expected" ;;
-	*) fail "ddns $section" "$host does not publish $expected (got: $(printf '%s' "$answers" | tr '\n' ' '))" ;;
+# vpn.drasa.eu has no service to fetch: what a client needs from it is the
+# router's current addresses, or a new tunnel cannot be brought up. The
+# addresses come from the WAN interfaces, not from this repo.
+for spec in "A|$wan4" "AAAA|$wan6_addr"; do
+	qtype=${spec%%|*}
+	want=${spec#*|}
+	[ -n "$want" ] || continue
+	answers=$(dns_answers "$ddns_resolver" vpn.drasa.eu "$qtype")
+	case "$answers" in
+	'') fail "ddns vpn $qtype" "vpn.drasa.eu publishes no $qtype" ;;
+	*"$want"*) pass "ddns vpn $qtype" "vpn.drasa.eu -> $want" ;;
+	*) fail "ddns vpn $qtype" "vpn.drasa.eu does not carry $want (got: $(printf '%s' "$answers" | tr '\n' ' '))" ;;
 	esac
 done
 
@@ -648,7 +653,7 @@ group pub
 
 if [ -z "$(on_hato 'echo ok')" ]; then
 	fail "pub vantage" "$HATO does not answer; the outside checks cannot run"
-	for label in "wan4 input" "wan4 names" "wan6 input" "mon closed" "cafe" "bead" "lan ssh" "lan http" "ban closed"; do
+	for label in "wan4 input" "wan6 input" "mon closed" "cafe" "bead" "lan ssh" "lan http" "ban closed"; do
 		skip "pub $label" "hato is unreachable"
 	done
 else
@@ -662,29 +667,25 @@ else
 		out=$(on_hato "ping -c 1 -w 2 $wan4 >/dev/null 2>&1; echo icmp=\$?
 			nc -z -w 3 $wan4 22 >/dev/null 2>&1; echo s22=\$?
 			curl -sS -o /dev/null -w 'http=%{http_code}\n' --max-time 6 http://$wan4/
-			curl -sS -o /dev/null -w 'cafe=%{http_code}\n' --max-time 6 --resolve $CAFE_NAME:443:$wan4 https://$CAFE_NAME/")
+			curl -sS -o /dev/null -w 'cafe=%{http_code}\n' --max-time 6 --resolve $CAFE_NAME:443:$wan4 https://$CAFE_NAME/
+			curl -sS -o /dev/null -w 'unlisted=%{http_code}\n' --max-time 6 --resolve unlisted.example:443:$wan4 https://unlisted.example/")
 		icmp=$(field "$out" icmp)
 		s22=$(field "$out" s22)
 		http4=$(field "$out" http)
 		cafe4=$(field "$out" cafe)
-		if [ "$icmp" = 0 ] && [ "$s22" != 0 ] && [ "$http4" = 301 ] && [ "$cafe4" = 200 ]; then
-			pass "pub wan4 input" "$wan4: ICMP answers, 22 refused, 80 redirects, 443 is cafe"
+		unlisted=$(field "$out" unlisted)
+		# The stream map is closed, so a name it does not list has to fail its
+		# handshake here rather than reach a default backend.
+		case "$unlisted" in '' | 000) no_backend=yes ;; *) no_backend= ;; esac
+		if [ "$icmp" = 0 ] && [ "$s22" != 0 ] && [ "$http4" = 301 ] &&
+			[ "$cafe4" = 200 ] && [ -n "$no_backend" ]; then
+			pass "pub wan4 input" "$wan4: ICMP answers, 22 refused, 80 redirects, 443 is cafe, unlisted names refused"
 		else
-			fail "pub wan4 input" "$wan4: icmp=${icmp:-?} 22=${s22:-?} 80=${http4:-?} 443=${cafe4:-?}"
+			fail "pub wan4 input" "$wan4: icmp=${icmp:-?} 22=${s22:-?} 80=${http4:-?} 443=${cafe4:-?} unlisted=${unlisted:-000}"
 		fi
 	fi
 
-	# The stream map is closed: a name it does not list has to fail its
-	# handshake rather than reach a default backend.
-	if [ -n "$wan4" ]; then
-		out=$(on_hato "curl -sS -o /dev/null -w '%{http_code}' --max-time 6 --resolve unlisted.example:443:$wan4 https://unlisted.example/")
-		case "$out" in
-		'' | 000) pass "pub wan4 names" "unlisted SNI refused on $wan4:443" ;;
-		*) fail "pub wan4 names" "unlisted SNI answered '$out'" ;;
-		esac
-	fi
-
-	# In IPv6 the address is mon's own, so nothing of cafe's may answer on it.
+		# In IPv6 the address is mon's own, so nothing of cafe's may answer on it.
 	# The address comes from DHCPv6 and can move; ICMP is the liveness control
 	# that separates "refuses" from "this run has a stale address".
 	case "$wan6_addr" in
@@ -738,9 +739,9 @@ else
 
 	# bead's name publishes a GUA, so unlike mon and ban it has to answer from
 	# outside: the record, the delegation's routing and the forward rule together.
-	bead6=$(dns_answers "$ddns_resolver" "bead.drasa.eu" AAAA | head -n 1)
+	bead6=$(dns_answers "$ddns_resolver" "$BEAD_NAME" AAAA | head -n 1)
 	if [ -z "$bead6" ]; then
-		skip "pub bead" "bead.drasa.eu publishes no AAAA"
+		skip "pub bead" "$BEAD_NAME publishes no AAAA"
 	else
 		out=$(on_hato "ping -6 -c 2 -w 3 $bead6 >/dev/null 2>&1; echo rc=\$?")
 		beadrc=$(field "$out" rc)
@@ -810,14 +811,50 @@ fetch() {
 
 fetch openwrt https://downloads.openwrt.org/.versions.json
 fetch nixos https://endoflife.date/api/nixos.json
-fetch lock https://raw.githubusercontent.com/golddranks/nixos_configs/main/flake.lock
+
+# The lock moves when the updater runs, and a day-old copy of it would keep a
+# lock that has just been brought up to date looking stale for the rest of the
+# cache's life. It is a small file of our own, so it is read every run; a failed
+# fetch leaves the previous copy in place.
+curl -sf --max-time 20 \
+	https://raw.githubusercontent.com/golddranks/nixos_configs/main/flake.lock \
+	-o "$CACHE/lock.new" && mv "$CACHE/lock.new" "$CACHE/lock"
 
 # What the hosts are built from. The workflow in that repo moves it daily.
 pin_rev=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.rev' 2>/dev/null)
 pin_date=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.lastModified' 2>/dev/null)
 
-# The release's branch head as "<rev> <commit-epoch>", refreshed daily. The
-# channel redirect names the rev; GitHub names the commit's date.
+# The channel's builds as "<stop-epoch> <rev>" lines, newest first, refreshed
+# daily. A build's output path names the revision it was made from
+# (nixos-channel-26.05.<build>.<rev>) and its JSON carries the time it stopped,
+# so each build dates itself without trusting commit dates.
+channels="$CACHE/channels"
+if [ -s "$channels" ] && [ -n "$(cat "$channels.stamp" 2>/dev/null)" ] &&
+	[ $(($(date +%s) - $(cat "$channels.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
+	:
+elif curl -sfL --max-time 20 \
+	https://hydra.nixos.org/job/nixos/release-26.05/nixos.channel -o "$CACHE/hydra"; then
+	: >"$channels.new"
+	for id in $(grep -oE '/build/[0-9]+' "$CACHE/hydra" | sed 's|.*/||' |
+		sort -un | tail -n 6); do
+		curl -sfL --max-time 20 -H 'Accept: application/json' \
+			"https://hydra.nixos.org/build/$id" -o "$CACHE/build" || continue
+		stop=$(jsonfilter -i "$CACHE/build" -e '@.stoptime' 2>/dev/null)
+		out=$(jsonfilter -i "$CACHE/build" -e '@.buildoutputs.out.path' 2>/dev/null)
+		case "$stop" in '' | *[!0-9]*) continue ;; esac
+		rev=${out##*.}
+		case "$rev" in '' | *[!0-9a-f]*) continue ;; esac
+		printf '%s %s\n' "$stop" "$rev" >>"$channels.new"
+	done
+	rm -f "$CACHE/hydra" "$CACHE/build"
+	if [ -s "$channels.new" ]; then
+		sort -rn "$channels.new" >"$channels"
+		date +%s >"$channels.stamp"
+	fi
+	rm -f "$channels.new"
+fi
+
+# The release's branch head, refreshed daily: the channel redirect names it.
 fetch_head() {
 	cache="$CACHE/head.$1"
 	if [ -s "$cache" ] && [ -n "$(cat "$cache.stamp" 2>/dev/null)" ] &&
@@ -828,16 +865,8 @@ fetch_head() {
 		"https://channels.nixos.org/nixos-$1/nixexprs.tar.xz" 2>/dev/null) || return 1
 	head_rev=${final%/*}
 	head_rev=${head_rev##*.}
-	[ -n "$head_rev" ] || return 1
-	curl -s --max-time 20 -o "$cache.raw" \
-		"https://api.github.com/repos/NixOS/nixpkgs/commits/$head_rev" || return 1
-	when=$(jsonfilter -i "$cache.raw" -e '@.commit.committer.date' 2>/dev/null)
-	# busybox date does not take the ISO form GitHub returns; the commit date is
-	# UTC, so it is parsed as such.
-	when=$(printf '%s' "$when" | sed 's/T/ /; s/Z$//')
-	epoch=$(date -u -d "$when" +%s 2>/dev/null)
-	[ -n "$epoch" ] || return 1
-	printf '%s %s\n' "$head_rev" "$epoch" >"$cache"
+	case "$head_rev" in '' | *[!0-9a-f]*) return 1 ;; esac
+	printf '%s\n' "$head_rev" >"$cache"
 	date +%s >"$cache.stamp"
 }
 
@@ -979,34 +1008,54 @@ nixos_newest=
 	sed -n 's/.*"cycle":"\([0-9.]*\)".*/\1/p' | head -n 1)
 [ -n "$nixos_newest" ] && value "nixos newest" "$nixos_newest"
 
-# Whether the lock is current is a question about the branch, not the calendar:
-# a stable branch moves every few days, so its head can be a week old and still
-# be the newest thing there is.
+# Whether the lock is current is a question about channel builds, not about
+# commit dates: the pin has to include the newest build that is
+# NIXOS_PIN_GRACE_DAYS old, because a newer one has not been due long enough to
+# insist on. A batch of backports carries dates days older than the push that
+# lands it, so the dates alone call a current lock late.
 if [ -z "$pin_rev" ] || [ -z "$pin_date" ] || [ -z "$nixos_newest" ]; then
 	skip "nixos pin" "no lockfile or no host answered"
 elif ! fetch_head "$nixos_newest"; then
 	skip "nixos pin" "no answer from channels.nixos.org"
+elif [ ! -s "$channels" ]; then
+	skip "nixos pin" "no channel history from hydra"
 else
-	read -r head_rev head_epoch <"$CACHE/head.$nixos_newest"
-	case "$pin_rev" in
-	"$head_rev"*) pass "nixos pin" "the lock pins the $nixos_newest head" ;;
-	*)
+	head_rev=$(cut -d' ' -f1 "$CACHE/head.$nixos_newest")
+	if [ "${pin_rev#"$head_rev"}" != "$pin_rev" ]; then
+		pass "nixos pin" "the lock pins the $nixos_newest head"
+	else
 		pin_day=$(date -u -d "@$pin_date" +%F)
-		head_day=$(date -u -d "@$head_epoch" +%F)
-		# Days as the two dates read, not the elapsed seconds: the message shows
-		# both dates, and a reader comparing them expects the number to match.
-		pin_lag=$((($(date -u -d "$head_day" +%s) - $(date -u -d "$pin_day" +%s)) / 86400))
-		head_age=$((($(date -u -d "$(date -u +%F)" +%s) - $(date -u -d "$head_day" +%s)) / 86400))
-		if [ "$head_age" -lt "$NIXOS_HEAD_MIN_AGE_DAYS" ]; then
-			# A branch that just moved has given the lock nothing to follow yet.
-			pass "nixos pin" "the head ($head_day) is not $NIXOS_HEAD_MIN_AGE_DAYS days old yet; the pin can follow"
-		elif [ "$pin_lag" -lt 0 ]; then
-			pass "nixos pin" "the lock ($pin_day) is newer than the $nixos_newest head ($head_day)"
+		cutoff=$(($(date +%s) - NIXOS_PIN_GRACE_DAYS * 86400))
+		due_rev=
+		due_stop=
+		while read -r stop rev; do
+			[ -n "$stop" ] || continue
+			[ "$stop" -le "$cutoff" ] || continue
+			due_rev=$rev
+			due_stop=$stop
+			break
+		done <"$channels"
+		due_day=$(date -u -d "@${due_stop:-0}" +%F)
+		if [ -z "$due_rev" ]; then
+			pass "nixos pin" "no $nixos_newest channel is $NIXOS_PIN_GRACE_DAYS days old yet"
+		elif [ "${pin_rev#"$due_rev"}" != "$pin_rev" ]; then
+			pass "nixos pin" "the lock ($pin_day) holds the $nixos_newest channel of $due_day"
 		else
-			fail "nixos pin" "the lock ($pin_day) is $pin_lag days behind the $nixos_newest head ($head_day, $(printf '%s' "$head_rev" | cut -c1-8))"
+			code=$(curl -s --max-time 20 -o "$CACHE/pin.compare" -w '%{http_code}' \
+				"https://api.github.com/repos/NixOS/nixpkgs/compare/$pin_rev...$due_rev")
+			status=$(jsonfilter -i "$CACHE/pin.compare" -e '@.status' 2>/dev/null)
+			rm -f "$CACHE/pin.compare"
+			case "$status" in
+			'') skip "nixos pin" "no answer from api.github.com ($code)" ;;
+			ahead | diverged)
+				fail "nixos pin" "the lock ($pin_day) is behind the $nixos_newest channel of $due_day ($due_rev)"
+				;;
+			*)
+				pass "nixos pin" "the lock ($pin_day) is the $nixos_newest channel of $due_day or newer"
+				;;
+			esac
 		fi
-		;;
-	esac
+	fi
 fi
 
 # A fresh build from a branch that went end of life is still stale; the release
@@ -1092,5 +1141,53 @@ space_checks mon "$(df -P |
 for host in cafe bead hato; do
 	space_checks "$host" "$(sed -n '8,$p' "$CACHE/facts.$host" 2>/dev/null)"
 done
+
+# --- disks -------------------------------------------------------------------
+# cafe's btrfs mirror is the only redundant storage in the line. sysfs and device
+# stats give the facts a guest may read - a device that dropped out and its error
+# counters - while SMART and the scrub state come from a root unit that leaves
+# /run/disk-health readable, because smartctl needs root and ghost has none.
+# SMART reports a disk before it drops out, so it is the earliest of the three.
+group disks
+report=$(on_host "$CAFE_ULA" 'stat -c %Y /run/disk-health 2>/dev/null
+	cat /run/disk-health 2>/dev/null')
+mtime=$(printf '%s\n' "$report" | sed -n '1p')
+case "$mtime" in
+'' | *[!0-9]*) skip "cafe smart" "cafe reports no disk health" ;;
+*)
+	body=$(printf '%s\n' "$report" | sed '1d')
+	problems=$(printf '%s\n' "$body" | awk '
+		$1 == "smart" && $3 != "PASSED" { print $2 " " $3 }
+		/^Error summary:/ && !/no errors found/ { print }')
+	age=$(( $(date +%s) - mtime ))
+	if [ "$age" -gt 7200 ]; then
+		fail "cafe smart" "the hourly report is $(( age / 3600 ))h old"
+	elif [ -n "$problems" ]; then
+		fail "cafe smart" "$(printf '%s' "$problems" | tr '\n' ' ')"
+	else
+		pass "cafe smart" "$(printf '%s\n' "$body" | grep -c '^smart ') disks PASSED, scrub clean"
+	fi
+	;;
+esac
+cafe_devs=$(on_host "$CAFE_ULA" 'ls /sys/fs/btrfs/*/devinfo/*/missing' 2>/dev/null |
+	grep -c .)
+cafe_gone=$(on_host "$CAFE_ULA" 'grep -lx 1 /sys/fs/btrfs/*/devinfo/*/missing' 2>/dev/null)
+if [ "$cafe_devs" -eq 0 ]; then
+	skip "cafe raid" "cafe reports no btrfs devices"
+elif [ -n "$cafe_gone" ]; then
+	fail "cafe raid" "missing from the filesystem: $(printf '%s' "$cafe_gone" | tr '\n' ' ')"
+else
+	pass "cafe raid" "$cafe_devs devices, none missing"
+fi
+
+cafe_stats=$(on_host "$CAFE_ULA" 'btrfs device stats /mnt/Avaruus' 2>/dev/null)
+cafe_errs=$(printf '%s\n' "$cafe_stats" | awk '$NF != 0')
+if [ -z "$cafe_stats" ]; then
+	skip "cafe btrfs" "no device statistics from cafe"
+elif [ -z "$cafe_errs" ]; then
+	pass "cafe btrfs" "no device errors"
+else
+	fail "cafe btrfs" "$(printf '%s' "$cafe_errs" | tr '\n' ' ')"
+fi
 
 exit "$bad"

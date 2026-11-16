@@ -27,19 +27,13 @@ config dnsmasq
 	option ednspacket_max '1232'
 	option filter_aaaa '0'
 	option filter_a '0'
-	# mon.drasa.eu, the name on the TLS certificate, has to resolve to the
-	# router itself. address_as_local makes these answers authoritative, so an
-	# IPv4 lookup returns an empty answer instead of going upstream.
-	# ban has a static ULA, so its names follow neither a lease nor the
-	# delegated prefix. llm.drasa.eu is bead's LLM vhost.
+	# The `lan` names have no other source: odhcpd knows nothing about a host
+	# without a lease, and ban's ULA is static while the delegated prefix moves.
+		# address_as_local makes these answers authoritative, so an IPv4 lookup
+	# returns an empty answer instead of going upstream.
 	option address_as_local '1'
-	list address '/mon.drasa.eu/@ULA@::1'
 	list address '/mon.lan/@ULA@::1'
 	list address '/ban.lan/@ULA@::2'
-	list address '/ban.drasa.eu/@ULA@::2'
-	list address '/bead.lan/@ULA@::bead'
-	list address '/bead.drasa.eu/@ULA@::bead'
-	list address '/llm.drasa.eu/@ULA@::bead'
 
 # cafe and bead get their host id spelled out: odhcpd composes <LAN /64>::cafe
 # and @ULA@::cafe instead of an address hashed from the DUID, and the address
@@ -110,7 +104,9 @@ config dhcp 'iot'
 	option interface 'iot'
 	option start '100'
 	option limit '50'
-	option leasetime '12h'
+	# The address outlives the day of silence checkup tolerates by half a day,
+	# so a device that sleeps past its renewal still finds it.
+	option leasetime '36h'
 
 config odhcpd 'odhcpd'
 	option maindhcp '0'

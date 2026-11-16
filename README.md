@@ -27,9 +27,7 @@ time.
   find the router.
 - Inbound TCP 80/443 is forwarded to LAN hosts while the router's own input
   stays closed.
-- `mon.lan`, `ban.lan`, `mon.drasa.eu`, `ban.drasa.eu`, `bead.lan`,
-  `bead.drasa.eu` and `llm.drasa.eu` (bead's LLM vhost): static ULA entries;
-  the `*.drasa.eu` ones also resolve publicly.
+- `mon.lan` and `ban.lan`: static ULA entries in the LAN resolver.
 - **Jail**: `SkeletorJail` on radio0 (2.4 GHz) over `br-iot`, `10.10.1.1/24`,
   DHCPv4 and masquerade to the WAN, no IPv6, WPA2/WPA3 mixed and client
   isolation - for devices that cannot use the IPv6-only LAN or WPA3.
