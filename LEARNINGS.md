@@ -126,6 +126,16 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   so a check that picks one NS at random alternates PASS/FAIL.
 - **The cycle is 600 s.** A prefix change is invisible to DNS until then.
 
+## Names and resolution
+
+- **Rebind protection discards a public record that points into private space.**
+  The zone publishes mon's and ban's ULAs, and both resolvers refuse them unless
+  told otherwise: unbound needs `private-domain`, dnsmasq `rebind-domain-ok`.
+- **A `.lan` name served from odhcpd's hosts file disappears at every boot.**
+  That file lives in `/tmp`, and the name returns only when its host renews -
+  minutes for one host, longer for another. `cafe.lan` and `bead.lan` are
+  written down in dnsmasq for that reason.
+
 ## NAT64 / Jool
 
 - **`JSTAT_POOL4_MISMATCH` climbs continuously** with an empty pool4 and working
@@ -208,6 +218,9 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
 - **IPv6 literals need brackets in URLs and in `-connect`.** `http://fd42::1/`
   is not a URL and `-connect fd42::1:443` is not a socket; curl answers `000`,
   which reads exactly like "nothing is listening".
+- **`scp` splits the destination on the first colon**, so an IPv6 address has to
+  be bracketed: `root@[fd42:6d6f:6e00::1]:/tmp/x`.
+  Unbracketed, scp reports `connection lost`, which reads like the link dropping.
 
 ## WireGuard
 
@@ -261,7 +274,8 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   address; it then waits T1 before asking again - 1350 s in the observed case,
   not the `expire in 43200` the log also prints. So `cafe.drasa.eu` is
   IPv6-dead for roughly twenty minutes after every flash.
-- **`/tmp/dhcp.leases` is empty on every boot.** It is rebuilt from renewals
-  and dnsmasq renews at half a 12 h lease, so an absent lease proves nothing
-  until 6 h of renewals have passed; the IoT liveness check waits 7 h before it
-  asserts anything, instead of calling every device dead after a flash.
+- **`/tmp/dhcp.leases` is empty on every boot.** It is rebuilt from renewals,
+  and a device renews at half its lease, so an absent lease proves nothing until
+  one whole window has passed. The jail's check reads the silence off the lease
+  itself - `leasetime - left` - and only judges a device once mon has been up
+  for the 24 h it tolerates.
