@@ -8,6 +8,9 @@ bind-libs - 9.20.30-r1
 busybox - 1.37.0-r6
 ca-bundle - 20260816-r2
 cgi-io - 2026.07.21~31cb3c89-r1
+coreutils - 9.9-r2
+coreutils-df - 9.9-r2
+coreutils-timeout - 9.9-r2
 curl - 8.23.0-r1
 ddns-scripts - 2.8.4-r9
 ddns-scripts-gandi - 2.8.4-r9
@@ -31,6 +34,7 @@ iperf3 - 3.22-r1
 iw - 6.17-r1
 jansson4 - 2.14.1-r1
 jool-tools-netfilter - 4.1.15-r1
+jq - 1.8.1-r2
 jshn - 2026.11.02~ff13b89e-r1
 jsonfilter - 2026.03.16~b9034210-r1
 kernel - 6.12.112~f0a7348f9cb959e1bf4d0447669b031e-r1

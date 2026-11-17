@@ -19,8 +19,9 @@ suffix="$1"
 ula=$(uci -q get network.globals.ula_prefix | sed 's|::/[0-9]*$||')
 [ -n "$ula" ] || exit 1
 stem=$(ubus call network.interface.lan status 2>/dev/null |
-	jsonfilter -e '@["ipv6-prefix-assignment"][*].address' 2>/dev/null |
-	grep -v "^${ula}" | head -n 1 | sed 's/:*$//')
+	jq -r --arg ula "$ula" '
+		[.["ipv6-prefix-assignment"][]? | .address | select(startswith($ula) | not)]
+		| first // "" | sub(":*$"; "")' 2>/dev/null)
 [ -n "$stem" ] || exit 1
 
 printf '%s::%s\n' "$stem" "$suffix"

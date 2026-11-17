@@ -280,6 +280,16 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
 
 ## Method
 
+- **busybox lacks `df -x` and `timeout`; coreutils' applets replace them.**
+  checkup had filtered mountpoints by hand instead of asking df, and capped ssh
+  with a background killer whose comment was about leaked descriptors.
+  `coreutils-df` takes over `/bin/df` as a link to `/usr/libexec/df-coreutils`,
+  and `coreutils-timeout` adds `/usr/bin/timeout`; both are per-applet packages,
+  so the image pays for two binaries rather than a coreutils install.
+- **`jq` is the JSON parser the image was missing.** jsonfilter selects a path
+  but cannot compare array elements, so every query - the branch activity, the
+  endoflife.date list, the lock's ref - was `tr`/`sed` over the raw text. It is
+  one package, and the parses are now the queries they were meant to be.
 - **`acme-common` decides renew-versus-issue by its store in `/etc/acme`, not by
   the certificate being served.** `sysupgrade -n` wipes both, so an image with a
   certificate but no store issues again on first boot; a day of flashing spent

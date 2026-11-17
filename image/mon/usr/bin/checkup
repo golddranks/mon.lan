@@ -46,32 +46,28 @@ GHOST_KEY="/root/.ssh/id_ed25519"
 
 bad=0
 
-# Labels are padded to 20 columns because mon-watch parses them at that width to
-# tell which checks are failing, and `[value]` lines at the same width to tell
-# which value changed. Keep every label at 20 characters or fewer.
-pass() { printf '[PASS] %-20s %s\n' "$1" "$2"; }
+# Tab separated because mon-watch keys on the label and compares values by it:
+# the tab is the field boundary, so a label or a message may be any length. A
+# label must not contain a tab.
+pass() { printf '[PASS]\t%s\t%s\n' "$1" "$2"; }
 fail() {
-	printf '[FAIL] %-20s %s\n' "$1" "$2"
+	printf '[FAIL]\t%s\t%s\n' "$1" "$2"
 	bad=1
 }
-info() { printf '[info] %-20s %s\n' "$1" "$2"; }
-skip() { printf '[skip] %-20s %s\n' "$1" "$2"; }
-value() { printf '[value] %-20s %s\n' "$1" "$2"; }
+info() { printf '[info]\t%s\t%s\n' "$1" "$2"; }
+skip() { printf '[skip]\t%s\t%s\n' "$1" "$2"; }
+value() { printf '[value]\t%s\t%s\n' "$1" "$2"; }
 group() { printf '\n== %s ==\n' "$1"; }
 
 [ -n "$ula_stem" ] ||
 	fail "ula prefix" "network.globals.ula_prefix is unset; ULA checks are meaningless"
 
-# Answers for a name, one per line; the resolver's own "Address: x:53" dropped.
-# $3 is an optional query type (A, AAAA).
+# Answers of one type for a name, one rdata per line. +noall +answer keeps the
+# record type in a column, so a CNAME in the chain is not mistaken for the
+# address; nslookup has no such column.
 dns_answers() {
-	if [ -n "${3-}" ]; then
-		nslookup -type="$3" "$2" "$1" 2>/dev/null |
-			sed -n 's/^Address:[[:space:]]*//p' | grep -vxF "$1:53"
-	else
-		nslookup "$2" "$1" 2>/dev/null |
-			sed -n 's/^Address:[[:space:]]*//p' | grep -vxF "$1:53"
-	fi
+	dig +noall +answer "${3:-A}" "$2" "@$1" 2>/dev/null |
+		awk -v t="${3:-A}" '$4 == t { print $5 }'
 }
 
 http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$@" 2>/dev/null; }
@@ -83,23 +79,12 @@ on_ban() {
 	ssh -T -i "$GHOST_KEY" "ghost@$BAN_ULA" "$1" 2>/dev/null </dev/null
 }
 
-# Runs one command on a NixOS host as ghost. dbclient has no connect timeout and
-# this busybox has no `timeout`, so the call is capped here: a wedged host must
-# not stall a cron run. Everything sent over the call carries its own limit
-# (curl --max-time, nc -w, ping -w).
+# Runs one command on a NixOS host as ghost. dbclient has no connect timeout, so
+# coreutils' timeout caps the call: a wedged host must not stall a cron run.
+# Everything sent over the call carries its own limit (curl --max-time, nc -w,
+# ping -w).
 on_host() {
-	out=/tmp/checkup.ssh.$$
-	ssh -T -i "$GHOST_KEY" "ghost@$1" "$2" >"$out" 2>/dev/null </dev/null &
-	pid=$!
-	# The killer's stdio is redirected: it outlives this function when the call
-	# returns early, and anything it holds open would keep a caller's $(...)
-	# from finishing for the rest of the sleep.
-	{ sleep 20; kill "$pid" 2>/dev/null; } >/dev/null 2>&1 &
-	killer=$!
-	wait "$pid" 2>/dev/null
-	kill "$killer" 2>/dev/null
-	cat "$out"
-	rm -f "$out"
+	timeout 20 ssh -T -i "$GHOST_KEY" "ghost@$1" "$2" 2>/dev/null </dev/null
 }
 
 # hato is the only vantage point outside the line.
@@ -222,8 +207,8 @@ fi
 
 # --- names ------------------------------------------------------------------
 group names
-dns64=$(nslookup ipv4only.arpa 127.0.0.1 2>/dev/null |
-	grep -o "${PREFIX_STEM}[0-9a-fA-F:]*" | head -n 1)
+dns64=$(dns_answers 127.0.0.1 ipv4only.arpa AAAA |
+	grep "^${PREFIX_STEM}" | head -n 1)
 if [ -n "$dns64" ]; then
 	pass "dns64" "ipv4only.arpa -> $dns64"
 else
@@ -581,8 +566,7 @@ group dns
 ddns_domain=$(uci -q get ddns.cafe_a.domain)
 ddns_resolver=1.1.1.1
 if [ -n "$ddns_domain" ]; then
-	ns=$(nslookup -type=NS "$ddns_domain" 1.1.1.1 2>/dev/null |
-		sed -n 's/.*nameserver = //p' | head -n 1)
+	ns=$(dig +short NS "$ddns_domain" @1.1.1.1 2>/dev/null | sed -n '1s/\.$//p')
 	if [ -n "$ns" ]; then
 		ns_addr=$(dns_answers 1.1.1.1 "$ns" A | head -n 1)
 		[ -n "$ns_addr" ] && ddns_resolver=$ns_addr && ddns_ns=$ns
@@ -813,9 +797,7 @@ fetch nixos https://endoflife.date/api/nixos.json
 
 # The newest cycle upstream supports. It names the branch below when the lock
 # does not name one.
-nixos_newest=
-[ -s "$CACHE/nixos" ] && nixos_newest=$(tr '}' '\n' <"$CACHE/nixos" |
-	sed -n 's/.*"cycle":"\([0-9.]*\)".*/\1/p' | head -n 1)
+nixos_newest=$(jq -r '.[0].cycle // empty' "$CACHE/nixos" 2>/dev/null)
 
 # The lock moves when the updater runs, and a day-old copy of it would keep a
 # lock that has just been brought up to date looking stale for the rest of the
@@ -843,41 +825,15 @@ esac
 # earliest moment a lock can carry the revision. releases.nixos.org writes the
 # directory about four minutes earlier, for nix-channel users, and nothing here
 # consumes it.
-#
-# GitHub prints one field per line and every move carries one "after" and one
-# "timestamp", so a line scan pairs them without a parser.
 moves="$CACHE/moves"
 [ "$(cat "$moves.ref" 2>/dev/null)" = "$pin_ref" ] || rm -f "$moves" "$moves.stamp"
 if [ -s "$moves" ] && [ -n "$(cat "$moves.stamp" 2>/dev/null)" ] &&
 	[ $(($(date +%s) - $(cat "$moves.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
 	:
 elif [ -n "$pin_ref" ] && curl -sf --max-time 20 \
-	"https://api.github.com/repos/NixOS/nixpkgs/activity?ref=$pin_ref&per_page=100" \
-	-o "$CACHE/activity"; then
-	awk '
-		/"after": / {
-			after = $0
-			sub(/.*"after": "/, "", after)
-			sub(/".*/, "", after)
-		}
-		/"timestamp": / {
-			when = $0
-			sub(/.*"timestamp": "/, "", when)
-			sub(/".*/, "", when)
-			if (after != "" && when != "") {
-				print when, after
-				after = ""
-			}
-		}' "$CACHE/activity" |
-	while read -r when rev; do
-		case "$rev" in '' | *[!0-9a-f]*) continue ;; esac
-		case "$rev" in *[1-9a-f]*) ;; *) continue ;; esac
-		at=$(TZ=UTC date -D '%Y-%m-%dT%H:%M:%S' -d "${when%Z}" +%s 2>/dev/null)
-		case "$at" in '' | *[!0-9]*) continue ;; esac
-		printf '%s %s\n' "$at" "$rev"
-	done |
-	sort -rn >"$CACHE/moves.new"
-	rm -f "$CACHE/activity"
+	"https://api.github.com/repos/NixOS/nixpkgs/activity?ref=$pin_ref&per_page=100" |
+	jq -r '.[] | select(.after) | "\(.timestamp | fromdateiso8601) \(.after)"' |
+	sort -rn >"$CACHE/moves.new"; then
 	if [ -s "$CACHE/moves.new" ]; then
 		mv "$CACHE/moves.new" "$moves"
 		printf '%s\n' "$pin_ref" >"$moves.ref"
@@ -904,7 +860,7 @@ fi
 due_day=
 [ -n "$due_at" ] && due_day=$(date -u -d "@$due_at" +%F)
 
-ow_stable=$(sed -n 's/.*"stable_version": *"\([^"]*\)".*/\1/p' "$CACHE/openwrt" 2>/dev/null | head -n 1)
+ow_stable=$(jq -r '.stable_version // empty' "$CACHE/openwrt" 2>/dev/null)
 [ -n "$ow_stable" ] && value "openwrt newest" "$ow_stable"
 
 # A box on the current stable is up to date. One on the same branch but a patch
@@ -1096,10 +1052,9 @@ else
 	for pair in $nixos_cycles; do
 		host=${pair%%:*}
 		cycle=${pair#*:}
-		eol=$(tr '}' '\n' <"$CACHE/nixos" |
-			grep -F "\"cycle\":\"$cycle\"" |
-			sed -n 's/.*"eol":"\([0-9-]*\)".*/\1/p' | head -n 1)
-		eol_s=$(date -d "$eol" +%s 2>/dev/null)
+		eol=$(jq -r --arg c "$cycle" '.[] | select(.cycle == $c) | .eol // empty' \
+			"$CACHE/nixos" 2>/dev/null)
+		eol_s=$(TZ=UTC date -d "$eol" +%s 2>/dev/null)
 		if [ -n "$eol_s" ] && [ "$eol_s" -lt "$today_s" ]; then
 			dead="$dead $host($cycle)"
 		fi
@@ -1136,32 +1091,24 @@ space_checks() {
 		pct=${line%% *}
 		rest=${line#* }
 		where=${rest%% *}
-		dev=${rest#* }
 		case "$pct" in
 		'' | *[!0-9]*) continue ;;
 		esac
-		# mon-watch reads the label off the first 20 columns, so a path that
-		# does not fit leaves the mountpoint to the value instead.
 		label="$host $where"
-		if [ ${#label} -le 20 ]; then
-			msg="$pct% used"
-		else
-			label="$host $dev"
-			msg="$pct% used on $where"
-		fi
 		if [ "$pct" -ge "$SPACE_MAX_PCT" ]; then
-			fail "$label" "$msg"
+			fail "$label" "$pct% used"
 		else
-			pass "$label" "$msg"
+			pass "$label" "$pct% used"
 		fi
 	done <<EOF
 $2
 EOF
 }
 
-# busybox df has no -x, so /rom and the tmpfs rows are filtered by mountpoint.
-space_checks mon "$(df -P |
-	awk 'NR > 1 && ($6 == "/" || $6 ~ /^\/mnt\//) { p = $5; sub(/%/, "", p); print p, $6, $1 }')"
+# coreutils' df answers to the bare name (coreutils-df takes over /bin/df) and
+# has -x, which busybox's does not; the same filter the hosts use.
+space_checks mon "$(df -P -l -x tmpfs -x devtmpfs -x efivarfs -x squashfs |
+	awk 'NR > 1 { p = $5; sub(/%/, "", p); print p, $6, $1 }')"
 for host in cafe bead hato; do
 	space_checks "$host" "$(sed -n '8,$p' "$CACHE/facts.$host" 2>/dev/null)"
 done

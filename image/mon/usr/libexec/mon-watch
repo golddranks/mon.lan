@@ -48,43 +48,26 @@ if [ ! -x "$CHECKUP" ]; then
 	exit 1
 fi
 
-# checkup prints "[FAIL] %-20s %s", and the state file records only the label, so
-# this recovers the whole line - the reason is what makes it readable.
+# checkup prints "[FAIL]\tlabel\ttext" and the state file records only the
+# label, so this looks the label up by field and formats the line for the mail.
 fail_line() {
-	printf '%s\n' "$out" | grep -F "[FAIL] $(printf '%-20s' "$1")" || true
+	printf '%s\n' "$out" |
+		awk -F'\t' -v l="$1" '$1 == "[FAIL]" && $2 == l { print $2 ": " $3 }'
 }
 
 # Extracts the failing labels into $now and the observed values into $now_vals.
-# checkup prints "[FAIL] %-20s %s", so a label is the first 20 columns; checkup
-# keeps every label within those, and a longer one would be cut here and could
-# never match the line fail_line() looks up.
+# The label is checkup's second field, so neither side has to agree on a column.
 collect() {
 	now=$(printf '%s\n' "$out" |
-		sed -n 's/^\[FAIL\] //p' |
-		cut -c1-20 |
-		sed 's/ *$//' |
-		sort -u)
+		awk -F'\t' '$1 == "[FAIL]" { print $2 }' | sort -u)
 
 	# `[info]` lines whose label matches a value annotate that value in the mail,
 	# so a value can stay one word and still show what it is about.
-	now_notes=$(printf '%s\n' "$out" | awk '
-		/^\[info\] / {
-			label = substr($0, 8, 20)
-			sub(/ +$/, "", label)
-			note = substr($0, 28)
-			sub(/^ +/, "", note)
-			print label "=" note
-		}')
+	now_notes=$(printf '%s\n' "$out" |
+		awk -F'\t' '$1 == "[info]" { print $2 "=" $3 }')
 
-	# The same 20-column layout, so a value's label is comparable too.
-	now_vals=$(printf '%s\n' "$out" | awk '
-		/^\[value\] / {
-			label = substr($0, 9, 20)
-			sub(/ +$/, "", label)
-			val = substr($0, 29)
-			sub(/^ +/, "", val)
-			print label "=" val
-		}' | sort)
+	now_vals=$(printf '%s\n' "$out" |
+		awk -F'\t' '$1 == "[value]" { print $2 "=" $3 }' | sort)
 }
 
 # Labels failing now that were not failing in the previous run.

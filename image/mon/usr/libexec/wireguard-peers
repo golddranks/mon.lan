@@ -15,14 +15,22 @@ trap 'rm -f "$wanted"' EXIT
 changed=0
 touched=
 
-# Peer sections in the network config, as bare refs (section name or
-# @wireguard_<iface>[n]), whatever interface they are on.
-sections() {
-	uci -q show network | sed -n 's/^network\.\([^=]*\)=wireguard_.*$/\1/p'
-}
-
 # Every uci access goes through the config name, so refs stay bare.
 uci_get() { uci -q get "network.$1" || true; }
+
+# Every peer section's public key mapped to its bare ref (section name or
+# @wireguard_<iface>[n]), read once: finding a key by scanning the sections
+# costs one `uci get` each, and the TSVs are checked row by row.
+peer_refs=$(uci -q show network | tr -d "'" | awk '
+	/[.]public_key=/ {
+		line = $0
+		ref = line
+		sub(/^network[.]/, "", ref)
+		sub(/[.]public_key=.*/, "", ref)
+		key = line
+		sub(/^[^=]*=/, "", key)
+		print key, ref
+	}')
 
 # Marks an interface whose peers changed, so it can be reconfigured at the end.
 record_touch() {
@@ -44,13 +52,8 @@ for file in /etc/wireguard/*.tsv; do
 		[ -n "$key" ] && [ -n "$ips" ] || continue
 		printf '%s\n' "$key" >>"$wanted"
 
-		ref=
-		for candidate in $(sections); do
-			if [ "$(uci_get "$candidate.public_key")" = "$key" ]; then
-				ref=$candidate
-				break
-			fi
-		done
+		ref=$(printf '%s\n' "$peer_refs" |
+			awk -v k="$key" '$1 == k { print $2; exit }')
 
 		# A key that moved to another interface has to be recreated there.
 		if [ -n "$ref" ] && [ "$(uci_get "$ref")" != "wireguard_$iface" ]; then
@@ -90,8 +93,7 @@ for file in /etc/wireguard/*.tsv; do
 done
 
 # Anything left that no TSV lists is not a peer.
-for candidate in $(sections); do
-	key=$(uci_get "$candidate.public_key")
+while read -r key candidate; do
 	[ -n "$key" ] || continue
 	if ! grep -qxF "$key" "$wanted"; then
 		type=$(uci_get "$candidate")
@@ -99,7 +101,9 @@ for candidate in $(sections); do
 		changed=1
 		record_touch "${type#wireguard_}"
 	fi
-done
+done <<EOF
+$peer_refs
+EOF
 
 if [ "$changed" -eq 1 ]; then
 	uci commit network

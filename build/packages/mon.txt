@@ -19,6 +19,13 @@ usteer
 
 # --- Diagnostics / convenience ---
 curl
+# checkup reduces the branch activity with jq; jsonfilter cannot compare array
+# elements against each other.
+jq
+# coreutils' df, whose -x filters the pseudo filesystems; busybox's has no -x.
+coreutils-df
+# coreutils' timeout, which caps checkup's ssh probes; this busybox has none.
+coreutils-timeout
 nano
 bind-dig
 tcpdump
