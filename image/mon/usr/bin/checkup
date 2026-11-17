@@ -39,7 +39,6 @@ JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
 IOT_SILENCE_H=24
 NIXOS_PIN_GRACE_DAYS=2
-NIXOS_HOST_MAX_LAG_DAYS=1
 SPACE_MAX_PCT=90
 CACHE=/tmp/checkup.cache
 mkdir -p "$CACHE"
@@ -787,8 +786,8 @@ fi
 # Both boxes are OpenWrt images built from a pinned release, and the LAN's NixOS
 # hosts are built from the flake.lock in nixos_configs, so "up to date" is not
 # about a running process: it is whether the pinned release is still the current
-# one, whether the hosts still run what the lock pins, and whether any host is
-# sitting on an activated kernel or initrd it never booted.
+# one, whether the hosts run a channel build no more than the grace behind, and
+# whether any host is sitting on an activated kernel or initrd it never booted.
 #
 # Upstream answers change on the scale of weeks, so they are fetched once a day
 # into /tmp and parsed from there. A failed fetch keeps yesterday's copy; with
@@ -812,6 +811,12 @@ fetch() {
 fetch openwrt https://downloads.openwrt.org/.versions.json
 fetch nixos https://endoflife.date/api/nixos.json
 
+# The newest cycle upstream supports. It names the branch below when the lock
+# does not name one.
+nixos_newest=
+[ -s "$CACHE/nixos" ] && nixos_newest=$(tr '}' '\n' <"$CACHE/nixos" |
+	sed -n 's/.*"cycle":"\([0-9.]*\)".*/\1/p' | head -n 1)
+
 # The lock moves when the updater runs, and a day-old copy of it would keep a
 # lock that has just been brought up to date looking stale for the rest of the
 # cache's life. It is a small file of our own, so it is read every run; a failed
@@ -824,51 +829,80 @@ curl -sf --max-time 20 \
 pin_rev=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.rev' 2>/dev/null)
 pin_date=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.lastModified' 2>/dev/null)
 
-# The channel's builds as "<stop-epoch> <rev>" lines, newest first, refreshed
-# daily. A build's output path names the revision it was made from
-# (nixos-channel-26.05.<build>.<rev>) and its JSON carries the time it stopped,
-# so each build dates itself without trusting commit dates.
-channels="$CACHE/channels"
-if [ -s "$channels" ] && [ -n "$(cat "$channels.stamp" 2>/dev/null)" ] &&
-	[ $(($(date +%s) - $(cat "$channels.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
+# The branch the lock follows. Only a release branch moves at publication; a
+# lock on master, or on a bare revision, is dated against the newest cycle.
+pin_ref=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.original.ref' 2>/dev/null)
+case "$pin_ref" in
+nixos-[0-9][0-9].[0-9][0-9]) ;;
+*) pin_ref="nixos-$nixos_newest" ;;
+esac
+
+# The branch's moves as "<pushed-epoch> <rev>" lines, newest first, refreshed
+# daily. nixos-channel-bot advances the branch when a build becomes the channel,
+# and a flake resolves that branch rather than the tarball, so a push is the
+# earliest moment a lock can carry the revision. releases.nixos.org writes the
+# directory about four minutes earlier, for nix-channel users, and nothing here
+# consumes it.
+#
+# GitHub prints one field per line and every move carries one "after" and one
+# "timestamp", so a line scan pairs them without a parser.
+moves="$CACHE/moves"
+[ "$(cat "$moves.ref" 2>/dev/null)" = "$pin_ref" ] || rm -f "$moves" "$moves.stamp"
+if [ -s "$moves" ] && [ -n "$(cat "$moves.stamp" 2>/dev/null)" ] &&
+	[ $(($(date +%s) - $(cat "$moves.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
 	:
-elif curl -sfL --max-time 20 \
-	https://hydra.nixos.org/job/nixos/release-26.05/nixos.channel -o "$CACHE/hydra"; then
-	: >"$channels.new"
-	for id in $(grep -oE '/build/[0-9]+' "$CACHE/hydra" | sed 's|.*/||' |
-		sort -un | tail -n 6); do
-		curl -sfL --max-time 20 -H 'Accept: application/json' \
-			"https://hydra.nixos.org/build/$id" -o "$CACHE/build" || continue
-		stop=$(jsonfilter -i "$CACHE/build" -e '@.stoptime' 2>/dev/null)
-		out=$(jsonfilter -i "$CACHE/build" -e '@.buildoutputs.out.path' 2>/dev/null)
-		case "$stop" in '' | *[!0-9]*) continue ;; esac
-		rev=${out##*.}
+elif [ -n "$pin_ref" ] && curl -sf --max-time 20 \
+	"https://api.github.com/repos/NixOS/nixpkgs/activity?ref=$pin_ref&per_page=100" \
+	-o "$CACHE/activity"; then
+	awk '
+		/"after": / {
+			after = $0
+			sub(/.*"after": "/, "", after)
+			sub(/".*/, "", after)
+		}
+		/"timestamp": / {
+			when = $0
+			sub(/.*"timestamp": "/, "", when)
+			sub(/".*/, "", when)
+			if (after != "" && when != "") {
+				print when, after
+				after = ""
+			}
+		}' "$CACHE/activity" |
+	while read -r when rev; do
 		case "$rev" in '' | *[!0-9a-f]*) continue ;; esac
-		printf '%s %s\n' "$stop" "$rev" >>"$channels.new"
-	done
-	rm -f "$CACHE/hydra" "$CACHE/build"
-	if [ -s "$channels.new" ]; then
-		sort -rn "$channels.new" >"$channels"
-		date +%s >"$channels.stamp"
+		case "$rev" in *[1-9a-f]*) ;; *) continue ;; esac
+		at=$(TZ=UTC date -D '%Y-%m-%dT%H:%M:%S' -d "${when%Z}" +%s 2>/dev/null)
+		case "$at" in '' | *[!0-9]*) continue ;; esac
+		printf '%s %s\n' "$at" "$rev"
+	done |
+	sort -rn >"$CACHE/moves.new"
+	rm -f "$CACHE/activity"
+	if [ -s "$CACHE/moves.new" ]; then
+		mv "$CACHE/moves.new" "$moves"
+		printf '%s\n' "$pin_ref" >"$moves.ref"
+		date +%s >"$moves.stamp"
 	fi
-	rm -f "$channels.new"
+	rm -f "$CACHE/moves.new"
 fi
 
-# The release's branch head, refreshed daily: the channel redirect names it.
-fetch_head() {
-	cache="$CACHE/head.$1"
-	if [ -s "$cache" ] && [ -n "$(cat "$cache.stamp" 2>/dev/null)" ] &&
-		[ $(($(date +%s) - $(cat "$cache.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
-		return 0
-	fi
-	final=$(curl -sIL --max-time 20 -o /dev/null -w '%{url_effective}' \
-		"https://channels.nixos.org/nixos-$1/nixexprs.tar.xz" 2>/dev/null) || return 1
-	head_rev=${final%/*}
-	head_rev=${head_rev##*.}
-	case "$head_rev" in '' | *[!0-9a-f]*) return 1 ;; esac
-	printf '%s\n' "$head_rev" >"$cache"
-	date +%s >"$cache.stamp"
-}
+# The move the hosts and the lock have to be at or above: the newest one the
+# branch made NIXOS_PIN_GRACE_DAYS ago, since a newer one has not been due long
+# enough to insist on.
+due_rev=
+due_at=
+if [ -s "$moves" ]; then
+	cutoff=$(($(date +%s) - NIXOS_PIN_GRACE_DAYS * 86400))
+	while read -r at rev; do
+		[ -n "$at" ] || continue
+		[ "$at" -le "$cutoff" ] || continue
+		due_rev=$rev
+		due_at=$at
+		break
+	done <"$moves"
+fi
+due_day=
+[ -n "$due_at" ] && due_day=$(date -u -d "@$due_at" +%F)
 
 ow_stable=$(sed -n 's/.*"stable_version": *"\([^"]*\)".*/\1/p' "$CACHE/openwrt" 2>/dev/null | head -n 1)
 [ -n "$ow_stable" ] && value "openwrt newest" "$ow_stable"
@@ -926,18 +960,20 @@ nixos_check() {
 		return
 	fi
 
-	# `26.05.20261102.7dcdd87` carries the nixpkgs date, i.e. the pin this host
-	# was built from; the lock's pin carries the date it should be on.
-	stamp8=$(printf '%s' "$ver" | cut -d. -f3)
+	# `26.05.20261113.f1e5c35 (Yarara)` names the revision the host was built
+	# from. The lock follows the same branch, so that revision is one of its
+	# moves, and being at or above the due move is what current means.
+	host_rev=$(printf '%s' "$ver" | cut -d. -f4 | cut -d' ' -f1)
 	behind=
-	if [ ${#stamp8} -eq 8 ] && [ -n "${pin_date-}" ]; then
-		built_on=$(printf '%s-%s-%s' \
-			"$(printf '%s' "$stamp8" | cut -c1-4)" \
-			"$(printf '%s' "$stamp8" | cut -c5-6)" \
-			"$(printf '%s' "$stamp8" | cut -c7-8)")
-		lag=$(( (pin_date - $(date -d "$built_on" +%s)) / 86400 ))
-		if [ "$lag" -gt "$NIXOS_HOST_MAX_LAG_DAYS" ]; then
-			behind="built $lag days before the lock's pin"
+	if [ -z "$host_rev" ]; then
+		behind="its version names no nixpkgs revision"
+	elif [ -n "$due_rev" ]; then
+		host_at=$(awk -v r="$host_rev" 'index($2, r) == 1 { print $1; exit }' "$moves")
+		if [ -z "$host_at" ]; then
+			oldest_at=$(tail -n 1 "$moves" | cut -d' ' -f1)
+			behind="its build predates the oldest move on $pin_ref ($(date -u -d "@$oldest_at" +%F))"
+		elif [ "$host_at" -lt "$due_at" ]; then
+			behind="runs the $(date -u -d "@$host_at" +%F) channel build; the $due_day one is due"
 		fi
 	fi
 
@@ -992,8 +1028,12 @@ nixos_check() {
 	fi
 	if [ -n "$problems" ]; then
 		fail "nixos $host" "$ver: $problems"
+	elif [ ! -s "$moves" ]; then
+		skip "nixos $host" "no branch moves from github"
+	elif [ -z "$due_rev" ]; then
+		pass "nixos $host" "$ver, no move on $pin_ref is $NIXOS_PIN_GRACE_DAYS days old yet"
 	else
-		pass "nixos $host" "$ver, on the lock's pin, running the current generation"
+		pass "nixos $host" "$ver, at the $due_day channel build or newer, running the current generation"
 	fi
 
 	nixos_cycles="$nixos_cycles $host:$(printf '%s' "$ver" | cut -d. -f1,2)"
@@ -1003,43 +1043,27 @@ nixos_check cafe "$CAFE_ULA"
 nixos_check bead "$BEAD_ULA"
 nixos_check hato "$HATO"
 
-nixos_newest=
-[ -s "$CACHE/nixos" ] && nixos_newest=$(tr '}' '\n' <"$CACHE/nixos" |
-	sed -n 's/.*"cycle":"\([0-9.]*\)".*/\1/p' | head -n 1)
 [ -n "$nixos_newest" ] && value "nixos newest" "$nixos_newest"
 
-# Whether the lock is current is a question about channel builds, not about
-# commit dates: the pin has to include the newest build that is
+# Whether the lock is current is a question about the branch's moves, not about
+# commit dates: the pin has to include the newest move that is
 # NIXOS_PIN_GRACE_DAYS old, because a newer one has not been due long enough to
 # insist on. A batch of backports carries dates days older than the push that
 # lands it, so the dates alone call a current lock late.
-if [ -z "$pin_rev" ] || [ -z "$pin_date" ] || [ -z "$nixos_newest" ]; then
-	skip "nixos pin" "no lockfile or no host answered"
-elif ! fetch_head "$nixos_newest"; then
-	skip "nixos pin" "no answer from channels.nixos.org"
-elif [ ! -s "$channels" ]; then
-	skip "nixos pin" "no channel history from hydra"
+if [ -z "$pin_rev" ] || [ -z "$pin_date" ]; then
+	skip "nixos pin" "no lockfile"
+elif [ ! -s "$moves" ]; then
+	skip "nixos pin" "no branch moves from github"
 else
-	head_rev=$(cut -d' ' -f1 "$CACHE/head.$nixos_newest")
+	head_rev=$(sed -n '1s/^[0-9]* //p' "$moves")
+	pin_day=$(date -u -d "@$pin_date" +%F)
 	if [ "${pin_rev#"$head_rev"}" != "$pin_rev" ]; then
-		pass "nixos pin" "the lock pins the $nixos_newest head"
+		pass "nixos pin" "the lock pins the $pin_ref head"
 	else
-		pin_day=$(date -u -d "@$pin_date" +%F)
-		cutoff=$(($(date +%s) - NIXOS_PIN_GRACE_DAYS * 86400))
-		due_rev=
-		due_stop=
-		while read -r stop rev; do
-			[ -n "$stop" ] || continue
-			[ "$stop" -le "$cutoff" ] || continue
-			due_rev=$rev
-			due_stop=$stop
-			break
-		done <"$channels"
-		due_day=$(date -u -d "@${due_stop:-0}" +%F)
 		if [ -z "$due_rev" ]; then
-			pass "nixos pin" "no $nixos_newest channel is $NIXOS_PIN_GRACE_DAYS days old yet"
+			pass "nixos pin" "no move on $pin_ref is $NIXOS_PIN_GRACE_DAYS days old yet"
 		elif [ "${pin_rev#"$due_rev"}" != "$pin_rev" ]; then
-			pass "nixos pin" "the lock ($pin_day) holds the $nixos_newest channel of $due_day"
+			pass "nixos pin" "the lock ($pin_day) holds the $due_day move"
 		else
 			code=$(curl -s --max-time 20 -o "$CACHE/pin.compare" -w '%{http_code}' \
 				"https://api.github.com/repos/NixOS/nixpkgs/compare/$pin_rev...$due_rev")
@@ -1048,10 +1072,10 @@ else
 			case "$status" in
 			'') skip "nixos pin" "no answer from api.github.com ($code)" ;;
 			ahead | diverged)
-				fail "nixos pin" "the lock ($pin_day) is behind the $nixos_newest channel of $due_day ($due_rev)"
+				fail "nixos pin" "the lock ($pin_day) is behind the $due_day move ($due_rev)"
 				;;
 			*)
-				pass "nixos pin" "the lock ($pin_day) is the $nixos_newest channel of $due_day or newer"
+				pass "nixos pin" "the lock ($pin_day) is the $due_day move or newer"
 				;;
 			esac
 		fi

@@ -244,6 +244,40 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   per-minute job is therefore ~144 KB/day of log in a 64 KiB ring. Reaching for
   a procd loop instead costs nothing.
 
+## NixOS updates
+
+- **A finished channel build is not the channel yet.** Hydra's `nixos.channel`
+  job producing its output only starts the clock; the channel is the directory
+  `releases.nixos.org` then publishes under the output's own name
+  (`nixos-26.05.<n>.<rev>`), and its mtime is that moment. Measured lags: 4 h
+  56 m, 16 h 13 m, 22 h 44 m, 26 h 49 m, 28 h 50 m. Half the builds in the
+  same window had no directory at all - superseded before publishing - so a
+  list of Hydra builds is not a list of channel revisions.
+- **The channel tarball is not the branch.** `releases.nixos.org` writes a
+  build's directory about four minutes before `nixos-channel-bot` advances
+  `nixos-XX.YY` (4 m 08 s, 4 m 08 s, 4 m 20 s over three builds). A flake
+  resolves the branch and never the tarball, so the push is the earliest moment
+  a lock can carry the revision, and the directory's mtime is the `nix-channel`
+  clock. `checkup` dates the branch's moves by the push, read from the
+  repository's activity API rather than from hydra and the release directory.
+- **The lock follows `nixos-26.05`, which moves at publication, so a quiet run
+  means the branch has not moved.** The run at 11-16 07:16 JST committed only a
+  `nixpkgs-unstable` bump although Hydra had finished `b349185` five hours
+  earlier; `nixos-26.05` moved to that revision after that run.
+- **A host can never be at the lock's pin.** The pin is whatever was newest when
+  the Action ran, and the hosts build whatever the lock says at 04:40 JST, so a
+  pin that lands at 10:18 is only reachable at the next 04:40 - a day after it
+  became the bar. "Up to date" has to mean the newest build published
+  `NIXOS_PIN_GRACE_DAYS` ago.
+- **Publication to a host running it reaches 36 h, against a 48 h grace.** The
+  Action's queue delay is 3 h 48 m to 7 h 16 m past its scheduled minute, which
+  eats into the day between publication and the next run and leaves ~32 h. What
+  exceeds the grace is a dropped Action run (60 h), not the timing.
+- **`26.05.20261113.f1e5c35` dates itself twice, and the day is the lossy one.**
+  The middle field is a UTC date, so a 2.4-day gap reads as 2 or 3 depending on
+  the hour, and `date -d` on a bare date reads it in JST. The revision is exact
+  and is what the channel list can be matched against.
+
 ## Method
 
 - **`acme-common` decides renew-versus-issue by its store in `/etc/acme`, not by
