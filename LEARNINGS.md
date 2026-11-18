@@ -258,7 +258,7 @@ reload` on `interface.*`; `dropbear_instance()` returns 1 while
   `nixos-XX.YY` (4 m 08 s, 4 m 08 s, 4 m 20 s over three builds). A flake
   resolves the branch and never the tarball, so the push is the earliest moment
   a lock can carry the revision, and the directory's mtime is the `nix-channel`
-  clock. `checkup` dates the branch's moves by the push, read from the
+  clock. `checkup` dates by the push, read from the
   repository's activity API rather than from hydra and the release directory.
 - **The lock follows `nixos-26.05`, which moves at publication, so a quiet run
   means the branch has not moved.** The run at 11-16 07:16 JST committed only a

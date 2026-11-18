@@ -39,6 +39,7 @@ JOOL_INSTANCE="nat64"
 CERT_MIN_DAYS=14
 IOT_SILENCE_H=24
 NIXOS_PIN_GRACE_DAYS=2
+PUSH_PAGE=100
 SPACE_MAX_PCT=90
 CACHE=/tmp/checkup.cache
 mkdir -p "$CACHE"
@@ -792,12 +793,12 @@ fetch() {
 	fi
 }
 
-fetch openwrt https://downloads.openwrt.org/.versions.json
-fetch nixos https://endoflife.date/api/nixos.json
+fetch openwrt_versions.json https://downloads.openwrt.org/.versions.json
+fetch nixos_eol.json https://endoflife.date/api/nixos.json
 
 # The newest cycle upstream supports. It names the branch below when the lock
 # does not name one.
-nixos_newest=$(jq -r '.[0].cycle // empty' "$CACHE/nixos" 2>/dev/null)
+nixos_newest=$(jq -r '.[0].cycle // empty' "$CACHE/nixos_eol.json" 2>/dev/null)
 
 # The lock moves when the updater runs, and a day-old copy of it would keep a
 # lock that has just been brought up to date looking stale for the rest of the
@@ -805,49 +806,56 @@ nixos_newest=$(jq -r '.[0].cycle // empty' "$CACHE/nixos" 2>/dev/null)
 # fetch leaves the previous copy in place.
 curl -sf --max-time 20 \
 	https://raw.githubusercontent.com/golddranks/nixos_configs/main/flake.lock \
-	-o "$CACHE/lock.new" && mv "$CACHE/lock.new" "$CACHE/lock"
+	-o "$CACHE/nixos_configs.flake.lock.new" &&
+	mv "$CACHE/nixos_configs.flake.lock.new" "$CACHE/nixos_configs.flake.lock"
 
 # What the hosts are built from. The workflow in that repo moves it daily.
-pin_rev=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.rev' 2>/dev/null)
-pin_date=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.locked.lastModified' 2>/dev/null)
+pin_rev=$(jsonfilter -i "$CACHE/nixos_configs.flake.lock" -e '@.nodes.nixpkgs.locked.rev' 2>/dev/null)
+pin_date=$(jsonfilter -i "$CACHE/nixos_configs.flake.lock" -e '@.nodes.nixpkgs.locked.lastModified' 2>/dev/null)
 
-# The branch the lock follows. Only a release branch moves at publication; a
-# lock on master, or on a bare revision, is dated against the newest cycle.
-pin_ref=$(jsonfilter -i "$CACHE/lock" -e '@.nodes.nixpkgs.original.ref' 2>/dev/null)
-case "$pin_ref" in
-nixos-[0-9][0-9].[0-9][0-9]) ;;
-*) pin_ref="nixos-$nixos_newest" ;;
-esac
+# The branch the lock follows, as the lock names it.
+pin_ref=$(jsonfilter -i "$CACHE/nixos_configs.flake.lock" -e '@.nodes.nixpkgs.original.ref' 2>/dev/null)
 
-# The branch's moves as "<pushed-epoch> <rev>" lines, newest first, refreshed
-# daily. nixos-channel-bot advances the branch when a build becomes the channel,
-# and a flake resolves that branch rather than the tarball, so a push is the
-# earliest moment a lock can carry the revision. releases.nixos.org writes the
-# directory about four minutes earlier, for nix-channel users, and nothing here
-# consumes it.
-moves="$CACHE/moves"
-[ "$(cat "$moves.ref" 2>/dev/null)" = "$pin_ref" ] || rm -f "$moves" "$moves.stamp"
-if [ -s "$moves" ] && [ -n "$(cat "$moves.stamp" 2>/dev/null)" ] &&
-	[ $(($(date +%s) - $(cat "$moves.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
+# The branch's pushes as "<pushed-epoch> <rev>" lines, newest first, refreshed
+# daily or when the lock's pin changes. nixos-channel-bot pushes the branch when
+# a build becomes the channel, and a flake resolves that branch rather than the
+# tarball, so a push is the earliest moment a lock can carry the revision.
+# releases.nixos.org writes the directory about four minutes earlier, for
+# nix-channel users, and nothing here consumes it.
+#
+# Keyed by the branch and by the pin it was fetched for: a pin newer than the
+# list is a revision it cannot place, and the hosts build it before the daily
+# refresh comes round.
+pushes="$CACHE/pushes"
+if [ "$(cat "$pushes.ref" 2>/dev/null)" != "$pin_ref" ] ||
+	[ "$(cat "$pushes.pin" 2>/dev/null)" != "$pin_rev" ]; then
+	rm -f "$pushes" "$pushes.stamp"
+fi
+if [ -s "$pushes" ] && [ -n "$(cat "$pushes.stamp" 2>/dev/null)" ] &&
+	[ $(($(date +%s) - $(cat "$pushes.stamp"))) -lt "$UPSTREAM_MAX_AGE" ]; then
 	:
 elif [ -n "$pin_ref" ] && curl -sf --max-time 20 \
-	"https://api.github.com/repos/NixOS/nixpkgs/activity?ref=$pin_ref&per_page=100" |
+	"https://api.github.com/repos/NixOS/nixpkgs/activity?ref=$pin_ref&per_page=$PUSH_PAGE" |
 	jq -r '.[] | select(.after) | "\(.timestamp | fromdateiso8601) \(.after)"' |
-	sort -rn >"$CACHE/moves.new"; then
-	if [ -s "$CACHE/moves.new" ]; then
-		mv "$CACHE/moves.new" "$moves"
-		printf '%s\n' "$pin_ref" >"$moves.ref"
-		date +%s >"$moves.stamp"
+	sort -rn >"$CACHE/pushes.new"; then
+	if [ -s "$CACHE/pushes.new" ]; then
+		mv "$CACHE/pushes.new" "$pushes"
+		printf '%s\n' "$pin_ref" >"$pushes.ref"
+		printf '%s\n' "$pin_rev" >"$pushes.pin"
+		date +%s >"$pushes.stamp"
 	fi
-	rm -f "$CACHE/moves.new"
+	rm -f "$CACHE/pushes.new"
 fi
 
-# The move the hosts and the lock have to be at or above: the newest one the
-# branch made NIXOS_PIN_GRACE_DAYS ago, since a newer one has not been due long
-# enough to insist on.
+# The push the hosts and the lock have to be at or above: the newest one that is
+# NIXOS_PIN_GRACE_DAYS old, since a newer one has not been due long enough to
+# insist on. A full page whose oldest push is still inside the grace cannot say:
+# the branch moves faster than the window reaches, and any date from it would be
+# fiction.
 due_rev=
 due_at=
-if [ -s "$moves" ]; then
+undateable=
+if [ -s "$pushes" ]; then
 	cutoff=$(($(date +%s) - NIXOS_PIN_GRACE_DAYS * 86400))
 	while read -r at rev; do
 		[ -n "$at" ] || continue
@@ -855,12 +863,15 @@ if [ -s "$moves" ]; then
 		due_rev=$rev
 		due_at=$at
 		break
-	done <"$moves"
+	done <"$pushes"
+	if [ -z "$due_rev" ] && [ "$(grep -c '' "$pushes")" -ge "$PUSH_PAGE" ]; then
+		undateable=1
+	fi
 fi
 due_day=
 [ -n "$due_at" ] && due_day=$(date -u -d "@$due_at" +%F)
 
-ow_stable=$(jq -r '.stable_version // empty' "$CACHE/openwrt" 2>/dev/null)
+ow_stable=$(jq -r '.stable_version // empty' "$CACHE/openwrt_versions.json" 2>/dev/null)
 [ -n "$ow_stable" ] && value "openwrt newest" "$ow_stable"
 
 # A box on the current stable is up to date. One on the same branch but a patch
@@ -918,16 +929,16 @@ nixos_check() {
 
 	# `26.05.20261113.f1e5c35 (Yarara)` names the revision the host was built
 	# from. The lock follows the same branch, so that revision is one of its
-	# moves, and being at or above the due move is what current means.
+	# pushes, and being at or above the due one is what current means.
 	host_rev=$(printf '%s' "$ver" | cut -d. -f4 | cut -d' ' -f1)
 	behind=
 	if [ -z "$host_rev" ]; then
 		behind="its version names no nixpkgs revision"
 	elif [ -n "$due_rev" ]; then
-		host_at=$(awk -v r="$host_rev" 'index($2, r) == 1 { print $1; exit }' "$moves")
+		host_at=$(awk -v r="$host_rev" 'index($2, r) == 1 { print $1; exit }' "$pushes")
 		if [ -z "$host_at" ]; then
-			oldest_at=$(tail -n 1 "$moves" | cut -d' ' -f1)
-			behind="its build predates the oldest move on $pin_ref ($(date -u -d "@$oldest_at" +%F))"
+			oldest_at=$(tail -n 1 "$pushes" | cut -d' ' -f1)
+			behind="its build predates the oldest push to $pin_ref ($(date -u -d "@$oldest_at" +%F))"
 		elif [ "$host_at" -lt "$due_at" ]; then
 			behind="runs the $(date -u -d "@$host_at" +%F) channel build; the $due_day one is due"
 		fi
@@ -984,10 +995,14 @@ nixos_check() {
 	fi
 	if [ -n "$problems" ]; then
 		fail "nixos $host" "$ver: $problems"
-	elif [ ! -s "$moves" ]; then
-		skip "nixos $host" "no branch moves from github"
+	elif [ -z "$pin_ref" ]; then
+		skip "nixos $host" "the lock names no branch"
+	elif [ ! -s "$pushes" ]; then
+		skip "nixos $host" "no branch pushes from github"
+	elif [ -n "$undateable" ]; then
+		skip "nixos $host" "$pin_ref moved $PUSH_PAGE times within $NIXOS_PIN_GRACE_DAYS days; cannot date it"
 	elif [ -z "$due_rev" ]; then
-		pass "nixos $host" "$ver, no move on $pin_ref is $NIXOS_PIN_GRACE_DAYS days old yet"
+		pass "nixos $host" "$ver, no push to $pin_ref is $NIXOS_PIN_GRACE_DAYS days old yet"
 	else
 		pass "nixos $host" "$ver, at the $due_day channel build or newer, running the current generation"
 	fi
@@ -1001,37 +1016,41 @@ nixos_check hato "$HATO"
 
 [ -n "$nixos_newest" ] && value "nixos newest" "$nixos_newest"
 
-# Whether the lock is current is a question about the branch's moves, not about
-# commit dates: the pin has to include the newest move that is
+# Whether the lock is current is a question about the branch's pushes, not about
+# commit dates: the pin has to include the newest push that is
 # NIXOS_PIN_GRACE_DAYS old, because a newer one has not been due long enough to
 # insist on. A batch of backports carries dates days older than the push that
 # lands it, so the dates alone call a current lock late.
 if [ -z "$pin_rev" ] || [ -z "$pin_date" ]; then
 	skip "nixos pin" "no lockfile"
-elif [ ! -s "$moves" ]; then
-	skip "nixos pin" "no branch moves from github"
+elif [ -z "$pin_ref" ]; then
+	skip "nixos pin" "the lock names no branch"
+elif [ ! -s "$pushes" ]; then
+	skip "nixos pin" "no branch pushes from github"
 else
-	head_rev=$(sed -n '1s/^[0-9]* //p' "$moves")
+	head_rev=$(sed -n '1s/^[0-9]* //p' "$pushes")
 	pin_day=$(date -u -d "@$pin_date" +%F)
 	if [ "${pin_rev#"$head_rev"}" != "$pin_rev" ]; then
 		pass "nixos pin" "the lock pins the $pin_ref head"
+	elif [ -n "$undateable" ]; then
+		skip "nixos pin" "$pin_ref moved $PUSH_PAGE times within $NIXOS_PIN_GRACE_DAYS days; cannot date it"
 	else
 		if [ -z "$due_rev" ]; then
-			pass "nixos pin" "no move on $pin_ref is $NIXOS_PIN_GRACE_DAYS days old yet"
+			pass "nixos pin" "no push to $pin_ref is $NIXOS_PIN_GRACE_DAYS days old yet"
 		elif [ "${pin_rev#"$due_rev"}" != "$pin_rev" ]; then
-			pass "nixos pin" "the lock ($pin_day) holds the $due_day move"
+			pass "nixos pin" "the lock ($pin_day) holds the $due_day push"
 		else
-			code=$(curl -s --max-time 20 -o "$CACHE/pin.compare" -w '%{http_code}' \
+			code=$(curl -s --max-time 20 -o "$CACHE/pin_compare.json" -w '%{http_code}' \
 				"https://api.github.com/repos/NixOS/nixpkgs/compare/$pin_rev...$due_rev")
-			status=$(jsonfilter -i "$CACHE/pin.compare" -e '@.status' 2>/dev/null)
-			rm -f "$CACHE/pin.compare"
+			status=$(jsonfilter -i "$CACHE/pin_compare.json" -e '@.status' 2>/dev/null)
+			rm -f "$CACHE/pin_compare.json"
 			case "$status" in
 			'') skip "nixos pin" "no answer from api.github.com ($code)" ;;
 			ahead | diverged)
-				fail "nixos pin" "the lock ($pin_day) is behind the $due_day move ($due_rev)"
+				fail "nixos pin" "the lock ($pin_day) is behind the $due_day push ($due_rev)"
 				;;
 			*)
-				pass "nixos pin" "the lock ($pin_day) is the $due_day move or newer"
+				pass "nixos pin" "the lock ($pin_day) is the $due_day push or newer"
 				;;
 			esac
 		fi
@@ -1053,7 +1072,7 @@ else
 		host=${pair%%:*}
 		cycle=${pair#*:}
 		eol=$(jq -r --arg c "$cycle" '.[] | select(.cycle == $c) | .eol // empty' \
-			"$CACHE/nixos" 2>/dev/null)
+			"$CACHE/nixos_eol.json" 2>/dev/null)
 		eol_s=$(TZ=UTC date -d "$eol" +%s 2>/dev/null)
 		if [ -n "$eol_s" ] && [ "$eol_s" -lt "$today_s" ]; then
 			dead="$dead $host($cycle)"
