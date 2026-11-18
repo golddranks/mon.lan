@@ -43,8 +43,8 @@ time.
   failure; `mon-watch` runs it every 10 min and mails when the failing set or a
   watched value (the delegation, the LAN GUA, the newest upstream releases)
   changes, so a clean renumbering is still reported; `mon-weekly` mails checkup,
-  addressing, routes, Jool counters and the last kernel log lines; failed sends
-  are logged to `/root/mon-notify.log`.
+  addressing, routes and Jool counters; failed sends are logged to
+  `/root/mon-notify.log`.
 
 ## ban
 

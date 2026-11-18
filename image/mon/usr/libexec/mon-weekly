@@ -1,6 +1,6 @@
 #!/bin/sh
 # Weekly report: the full checkup run plus the numbers that have no place in a
-# pass/fail check (Jool counters, routes, recent kernel log).
+# pass/fail check (Jool counters, routes).
 set -u
 
 SEND=/usr/libexec/mon-send
@@ -21,14 +21,6 @@ TMP=/tmp/mon-weekly.$$
 	printf '\n== jool ==\n'
 	jool -i nat64 stats display 2>/dev/null |
 		grep -E 'JSTAT_(BIB_ENTRIES|SESSIONS|POOL4_MISMATCH):'
-	# The bare form prints TCP rows only on this build, so name each protocol.
-	for proto in tcp udp icmp; do
-		printf -- '-- pool4 %s --\n' "$proto"
-		jool -i nat64 pool4 display --"$proto" 2>/dev/null
-	done
-
-	printf '\n== logread (last 200 lines) ==\n'
-	logread 2>/dev/null | tail -n 200
 } > "$TMP" 2>&1
 
 # The weekly report starts the mail thread and names the week: every message mon
