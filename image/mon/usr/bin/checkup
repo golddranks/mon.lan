@@ -1162,7 +1162,9 @@ else
 		elif [ -n "$problems" ]; then
 			fail "cafe smart" "$(printf '%s' "$problems" | tr '\n' ' ')"
 		elif [ -z "$scrub" ]; then
-			fail "cafe smart" "no scrub status in the report; /mnt/Avaruus is not mounted"
+			# A partial report and the writer's own "/mnt/Avaruus is not mounted"
+			# both land here, so print the body instead of guessing at a cause.
+			fail "cafe smart" "no scrub status in: $(printf '%s' "${body:-<empty>}" | tr '\n\t' '  ')"
 		elif [ "$scrub" != finished ] && [ "$scrub" != running ]; then
 			fail "cafe smart" "the last scrub is $scrub"
 		else
